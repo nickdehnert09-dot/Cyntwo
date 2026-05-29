@@ -1,0 +1,146 @@
+{
+  "theme_and_archetype": {
+    "domain": "Music Player & AI Library",
+    "theme": "DARK",
+    "archetype": "Archetype 5 (Luxury) mixed with Archetype 1 (Organic & Earthy). A premium, cinematic dark mode infused with warm analog/vinyl textures to evoke high-end audio equipment.",
+    "core_principles": [
+      "Dark-first design: Build natively for OLED blacks and deep shadows.",
+      "Analog Warmth: Avoid generic tech blue/purple; use warm amber and terracotta accents.",
+      "Bento/Grid Layouts: Use modular cards with glassmorphism for library and controls.",
+      "Mobile-First Constraints: Emulate a React Native mobile app layout using a constrained max-width container (e.g. max-w-md mx-auto h-screen) with bottom tab navigation."
+    ]
+  },
+  "colors": {
+    "background": {
+      "base": "#0A0A0A",
+      "tailwind": "bg-neutral-950",
+      "description": "Deep obsidian black for the root mobile app background."
+    },
+    "surface": {
+      "primary": "rgba(23, 23, 23, 0.7)",
+      "tailwind": "bg-neutral-900/70 backdrop-blur-xl",
+      "description": "Milled glassmorphism for cards, mini-player, and bottom nav. Must always have a 1px border."
+    },
+    "accent": {
+      "primary": "#FF8C00",
+      "tailwind": "bg-amber-500 text-amber-500",
+      "description": "Warm glowing amber representing vacuum tubes and analog energy. Used for play buttons, active tabs, and sliders."
+    },
+    "text": {
+      "primary": "#F5F5F5",
+      "secondary": "#A3A3A3",
+      "tailwind": "text-neutral-100 and text-neutral-400"
+    },
+    "borders": {
+      "subtle": "rgba(255, 255, 255, 0.1)",
+      "tailwind": "border-white/10"
+    }
+  },
+  "typography": {
+    "font_families": {
+      "headings": "Outfit, sans-serif",
+      "body": "Manrope, sans-serif"
+    },
+    "rules": {
+      "h1": "text-3xl sm:text-4xl font-bold tracking-tight text-neutral-100",
+      "h2": "text-2xl font-bold tracking-tight text-neutral-100",
+      "track_title": "text-lg font-semibold tracking-tight text-neutral-100",
+      "metadata": "text-xs font-medium tracking-[0.05em] text-neutral-400 uppercase",
+      "general": "No generic sans like Inter. Keep text readable in dark mode (APCA contrast). Never center everything—align left for track lists."
+    }
+  },
+  "spacing_and_layout": {
+    "container": "w-full max-w-md mx-auto h-[100dvh] overflow-hidden flex flex-col relative bg-neutral-950 border-x border-white/5 shadow-2xl",
+    "padding": {
+      "screen": "p-6",
+      "card": "p-4",
+      "list_item": "py-3"
+    },
+    "layout_patterns": [
+      "Bottom Tab Navigation: Fixed at the bottom, above safe area, glassmorphic.",
+      "Mini Player: Floating directly above the bottom nav, stretches full width of container minus padding.",
+      "Scrollable Content: Flex-1 container with overflow-y-auto hidden scrollbar.",
+      "Full Screen Player: Absolute inset-0 z-50 covering everything with a slide-up animation feel."
+    ]
+  },
+  "components": {
+    "auth_screen": {
+      "layout": "Full-height image background with heavy bottom-up gradient mask (bg-gradient-to-t from-neutral-950 via-neutral-950/80 to-transparent).",
+      "form": "Glassmorphic bento card (backdrop-blur-2xl bg-neutral-900/40 border border-white/10).",
+      "inputs": "Shadcn Inputs heavily customized: bg-white/5 border-white/10 text-white rounded-xl h-12 px-4 focus:border-amber-500 focus:ring-1 focus:ring-amber-500.",
+      "button": "Primary CTA rounded-full bg-amber-500 text-neutral-950 font-bold h-12."
+    },
+    "library_screen": {
+      "header": "Search input for Suno Username. Glassmorphic styling with a subtle search icon on left.",
+      "recently_played": "Horizontal carousel (flex overflow-x-auto gap-4 scrollbar-hide). Square cards w/ rounded-xl art, 140x140px, bold 1-line title, small artist name.",
+      "public_songs_list": "Vertical list. Each row: flex flex-row items-center gap-4 py-2. Left: 56x56px rounded-md artwork. Center: flex-1 flex-col truncate title & tags. Right: text-xs duration & play count. Play button appears on hover/active."
+    },
+    "mini_player": {
+      "container": "absolute bottom-[70px] left-2 right-2 h-16 rounded-xl bg-neutral-800/80 backdrop-blur-xl border border-white/10 flex items-center px-3 z-40 shadow-xl overflow-hidden cursor-pointer",
+      "elements": "Thumbnail (40x40px rounded-sm), scrolling title marquee, play/pause button (amber), absolute bottom-0 left-0 h-[2px] bg-amber-500 (progress bar representing time)."
+    },
+    "full_screen_player": {
+      "container": "fixed inset-0 z-50 bg-neutral-950 flex flex-col p-6 (within the mobile container width).",
+      "artwork": "Massive square artwork (w-full aspect-square rounded-2xl shadow-2xl shadow-amber-900/20 mb-8).",
+      "info": "Large bold track title, artist name underneath.",
+      "seek_bar": "Custom slider: 1px high track (bg-white/20), thick active track (bg-amber-500). Thumb should be small or invisible until pressed.",
+      "controls": "Flex row justify-between items-center mt-6. Large 64x64px circular play/pause button (bg-amber-500 text-black). Subdued skip/shuffle/repeat icons."
+    },
+    "bottom_navigation": {
+      "container": "absolute bottom-0 w-full h-[64px] bg-neutral-900/90 backdrop-blur-2xl border-t border-white/5 flex justify-around items-center z-30",
+      "items": "3-4 tabs (Library, Search, Favorites, Profile). Active state gets an amber-500 subtle glow/tint."
+    }
+  },
+  "motion": {
+    "hover": "Transition-all duration-300 ease-out. Active items scale-95.",
+    "list_items": "Staggered fade-up on mount for library songs.",
+    "page_transitions": "Slide-up for Now Playing full screen, fade for tab switching."
+  },
+  "assets": {
+    "backgrounds": {
+      "auth_hero": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/16e8fa5d-4486-4606-a7a2-36cae138fe3c/images/3eca015eda7ed66601131d53a9f0d0f50b150607feff7548c45aae1bcf29edce.png",
+        "description": "Analog vacuum tube hi-fi amp for the login background."
+      },
+      "empty_state": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/16e8fa5d-4486-4606-a7a2-36cae138fe3c/images/2f1188d8d9b330cd99a10d2e8f2c9f75a96a6369edb146149a1e5444f67f2347.png",
+        "description": "Floating vinyl with neon waves for empty library state."
+      }
+    },
+    "albums": [
+      {
+        "url": "https://images.unsplash.com/photo-1541367777708-7905fe3296c0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMGNvbG9yZnVsJTIwYWxidW0lMjBhcnR8ZW58MHx8fHwxNzgwMDQ5NDc4fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Multicolored abstract painting (Track artwork)"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1704556795726-949f5a97e22d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHw0fHxhYnN0cmFjdCUyMGNvbG9yZnVsJTIwYWxidW0lMjBhcnR8ZW58MHx8fHwxNzgwMDQ5NDc4fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Red, blue, and green figure (Track artwork)"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1550859492-d5da9d8e45f3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGNvbG9yZnVsJTIwYWxidW0lMjBhcnR8ZW58MHx8fHwxNzgwMDQ5NDc4fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Rainbow blurred background (Track artwork)"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1579546929662-711aa81148cf?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGNvbG9yZnVsJTIwYWxidW0lMjBhcnR8ZW58MHx8fHwxNzgwMDQ5NDc4fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Pink and blue illustration (Track artwork)"
+      },
+      {
+        "url": "https://images.pexels.com/photos/13069544/pexels-photo-13069544.png?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Dynamic red and blue swirls (Track artwork)"
+      }
+    ]
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "usage": "Use Phosphor Icons with 'fill' weight for active states and 'regular' for inactive states. Install: yarn add @phosphor-icons/react"
+  },
+  "instructions_to_main_agent": [
+    "TECH STACK RULE: The user asked for a 'React Native Expo' app, but our environment is React JS, Tailwind, and Shadcn. YOU MUST build a responsive web application that visually mimics a mobile app.",
+    "Wrap the main App content in a 'max-w-md mx-auto h-[100dvh] overflow-hidden relative shadow-2xl bg-neutral-950' to force a mobile-sized viewport on desktop, making it feel exactly like a mobile app.",
+    "Do NOT use 'Inter' for fonts. Import 'Outfit' (headings) and 'Manrope' (body) via Google Fonts.",
+    "Implement the Mini Player so it sticks to the bottom above the tab navigation. Clicking it should expand to the full screen Now Playing view (absolute inset-0 z-50).",
+    "All interactive elements MUST have data-testid attributes (e.g. data-testid='play-pause-btn').",
+    "Never use placehold.it. Use the assets provided in this JSON.",
+    "For the audio player logic, mock it if necessary but ensure the UI visually supports play/pause/skip/seek/shuffle states."
+  ]
+}
