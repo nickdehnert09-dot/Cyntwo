@@ -120,6 +120,7 @@ class SongIn(BaseModel):
     created_at: Optional[str] = None
     handle: Optional[str] = None
     display_name: Optional[str] = None
+    is_public: Optional[bool] = False
 
 
 class ImportIn(BaseModel):
@@ -256,6 +257,7 @@ def _project_song(doc: dict) -> dict:
         "handle": doc.get("handle"),
         "display_name": doc.get("display_name"),
         "is_favorite": doc.get("is_favorite", False),
+        "is_public": doc.get("is_public", False),
         "imported_at": doc.get("imported_at", now_utc()).isoformat()
         if isinstance(doc.get("imported_at"), datetime)
         else doc.get("imported_at"),
@@ -300,6 +302,15 @@ async def delete_song(song_id: str, user: dict = Depends(get_current_user)):
 @api.delete("/library")
 async def clear_library(user: dict = Depends(get_current_user)):
     res = await db.songs.delete_many({"user_id": user["id"]})
+    return {"deleted": res.deleted_count}
+
+
+@api.delete("/library/unpublished")
+async def clear_unpublished(user: dict = Depends(get_current_user)):
+    """Remove songs that aren't flagged is_public=true (drafts / discarded versions)."""
+    res = await db.songs.delete_many(
+        {"user_id": user["id"], "is_public": {"$ne": True}}
+    )
     return {"deleted": res.deleted_count}
 
 

@@ -49,6 +49,19 @@ const SNIFFER = `
     return ('audio_url' in obj) || ('metadata' in obj && obj.metadata && ('tags' in obj.metadata || 'prompt' in obj.metadata));
   }
 
+  // Strict: only accept clips the user has actually PUBLISHED.
+  // Suno generates many drafts per prompt; we only want the songs flagged is_public.
+  function isPublished(c) {
+    if (!c) return false;
+    if (c.is_trashed === true) return false;
+    if (c.is_public === true) return true;
+    if (c.public === true) return true;
+    if (c.is_published === true) return true;
+    // Some payloads nest the flag under .clip
+    if (c.clip && (c.clip.is_public === true || c.clip.public === true)) return true;
+    return false;
+  }
+
   function extractClips(data) {
     if (!data) return [];
     if (Array.isArray(data)) {
@@ -81,13 +94,16 @@ const SNIFFER = `
       created_at: c.created_at || null,
       handle: (c.handle) || (c.user && c.user.handle) || null,
       display_name: (c.display_name) || (c.user && c.user.display_name) || null,
+      is_public: (c.is_public === true) || (c.public === true) || (c.is_published === true),
     };
   }
 
   function handlePayload(url, data) {
     var clips = extractClips(data);
     if (!clips.length) return;
-    var songs = clips.map(normalize).filter(function(s) { return s.id && s.audio_url; });
+    var published = clips.filter(isPublished);
+    if (!published.length) return;
+    var songs = published.map(normalize).filter(function(s) { return s.id && s.audio_url; });
     if (!songs.length) return;
     post({ type: 'songs', count: songs.length, url: url, songs: songs });
   }
@@ -270,7 +286,8 @@ export default function ConnectSunoScreen() {
           <View style={styles.banner}>
             <Feather name="info" size={14} color={colors.accent} />
             <Text style={styles.bannerText}>
-              Sign in to Suno below. We listen for your tracks as the page loads them.
+              Sign in below, then open your profile or songs page.{"\n"}
+              We only capture tracks you've published publicly.
             </Text>
           </View>
 

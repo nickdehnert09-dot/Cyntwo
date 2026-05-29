@@ -59,6 +59,7 @@ export type Song = {
   handle: string | null;
   display_name: string | null;
   is_favorite: boolean;
+  is_public: boolean;
   imported_at: string;
 };
 

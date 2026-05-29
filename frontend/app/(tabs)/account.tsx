@@ -27,6 +27,32 @@ export default function AccountScreen() {
     ]);
   };
 
+  const onCleanupDrafts = () => {
+    Alert.alert(
+      "Remove drafts & unpublished?",
+      "Drops every track that isn't flagged public on Suno. Your published songs stay.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove", style: "destructive",
+          onPress: async () => {
+            try {
+              const res = await api<{ deleted: number }>("/library/unpublished", { method: "DELETE" });
+              Alert.alert(
+                res.deleted > 0 ? "Cleaned up" : "Nothing to remove",
+                res.deleted > 0
+                  ? `Removed ${res.deleted} unpublished ${res.deleted === 1 ? "track" : "tracks"}.`
+                  : "Every track in your library is already flagged public.",
+              );
+            } catch (e: any) {
+              Alert.alert("Failed", e?.message ?? "Could not clean up");
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const onClearLibrary = () => {
     Alert.alert(
       "Clear library?",
@@ -78,6 +104,19 @@ export default function AccountScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.actionTitle}>Sync from Suno</Text>
             <Text style={styles.actionSub}>Pull the latest tracks from your Suno profile</Text>
+          </View>
+          <Feather name="chevron-right" size={18} color={colors.textDim} />
+        </Pressable>
+
+        <Pressable
+          testID="account-cleanup-drafts"
+          onPress={onCleanupDrafts}
+          style={({ pressed }) => [styles.actionRow, pressed && { opacity: 0.8 }]}
+        >
+          <Feather name="filter" size={18} color={colors.accent} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.actionTitle}>Remove drafts & unpublished</Text>
+            <Text style={styles.actionSub}>Keeps only the tracks you've actually published on Suno</Text>
           </View>
           <Feather name="chevron-right" size={18} color={colors.textDim} />
         </Pressable>
