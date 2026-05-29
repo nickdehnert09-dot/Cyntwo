@@ -14,6 +14,10 @@ Suno deprecated the legacy `studio-api.suno.ai/api/profile/v2/{username}` endpoi
 - `GET /api/library?favorites_only=` — list user's songs, newest first
 - `POST /api/library/favorite/{song_id}` — toggle
 - `DELETE /api/library/song/{song_id}`, `DELETE /api/library` — remove
+- `POST /api/library/share/{song_id}` — create/get short share slug (idempotent, per-user)
+- `DELETE /api/library/share/{song_id}` — revoke share
+- `GET /api/share/{slug}/info` — **public** JSON metadata, increments view counter
+- `GET /api/share/{slug}` — **public** SSR'd HTML listen page with og/twitter:player meta tags + native `<audio>` element + signup funnel CTA
 
 ### Frontend (Expo Router, expo-audio, react-native-webview)
 - `(auth)/login`, `(auth)/signup`
