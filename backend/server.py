@@ -12,12 +12,15 @@ import uuid
 
 import bcrypt
 import jwt
+import secrets
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
+from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from starlette.middleware.cors import CORSMiddleware
+from html import escape as h
 
 
 ROOT_DIR = Path(__file__).parent
@@ -300,6 +303,162 @@ async def clear_library(user: dict = Depends(get_current_user)):
     return {"deleted": res.deleted_count}
 
 
+# --- Share routes ---
+def _make_slug() -> str:
+    # 8-char url-safe slug from secrets (≈ 47 bits, plenty for a non-guessable share link)
+    return secrets.token_urlsafe(6)[:8]
+
+
+@api.post("/library/share/{song_id}")
+async def create_share(song_id: str, user: dict = Depends(get_current_user)):
+    song = await db.songs.find_one({"user_id": user["id"], "id": song_id}, {"_id": 0})
+    if not song:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Song not found")
+    if not song.get("audio_url"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Song has no playable audio")
+    existing = await db.shares.find_one({"user_id": user["id"], "song_id": song_id}, {"_id": 0})
+    if existing:
+        slug = existing["slug"]
+    else:
+        # try a few times for uniqueness
+        for _ in range(5):
+            slug = _make_slug()
+            if not await db.shares.find_one({"slug": slug}):
+                break
+        else:
+            raise HTTPException(500, "Could not allocate share slug")
+        await db.shares.insert_one(
+            {
+                "slug": slug,
+                "user_id": user["id"],
+                "song_id": song_id,
+                "created_at": now_utc(),
+                "views": 0,
+            }
+        )
+    return {"slug": slug, "path": f"/api/share/{slug}"}
+
+
+@api.delete("/library/share/{song_id}")
+async def revoke_share(song_id: str, user: dict = Depends(get_current_user)):
+    res = await db.shares.delete_one({"user_id": user["id"], "song_id": song_id})
+    return {"ok": True, "deleted": res.deleted_count}
+
+
+async def _resolve_share(slug: str) -> dict:
+    share = await db.shares.find_one({"slug": slug}, {"_id": 0})
+    if not share:
+        raise HTTPException(404, "Share not found")
+    song = await db.songs.find_one(
+        {"user_id": share["user_id"], "id": share["song_id"]},
+        {"_id": 0, "user_id": 0},
+    )
+    if not song:
+        raise HTTPException(404, "Song no longer available")
+    await db.shares.update_one({"slug": slug}, {"$inc": {"views": 1}})
+    return {"share": share, "song": song}
+
+
+@api.get("/share/{slug}/info")
+async def share_info(slug: str):
+    """Public JSON endpoint for in-app preview before sharing."""
+    data = await _resolve_share(slug)
+    s = data["song"]
+    return {
+        "slug": slug,
+        "title": s.get("title", "Untitled"),
+        "audio_url": s.get("audio_url"),
+        "image_url": s.get("image_url"),
+        "tags": s.get("tags", ""),
+        "duration": s.get("duration"),
+        "display_name": s.get("display_name"),
+        "handle": s.get("handle"),
+        "views": data["share"].get("views", 0) + 1,
+    }
+
+
+def _share_html(slug: str, song: dict, share_url: str) -> str:
+    title = song.get("title") or "Untitled"
+    audio_url = song.get("audio_url") or ""
+    image_url = song.get("image_url") or ""
+    artist = song.get("display_name") or song.get("handle") or "Suno artist"
+    tags = song.get("tags") or ""
+    duration = song.get("duration") or 0
+    duration_s = int(duration) if duration else 0
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>{h(title)} — Suno Library</title>
+<meta name="description" content="{h(artist)} on Suno Library. Listen now." />
+<meta property="og:type" content="music.song" />
+<meta property="og:title" content="{h(title)}" />
+<meta property="og:description" content="By {h(artist)} · Listen on Suno Library" />
+<meta property="og:image" content="{h(image_url)}" />
+<meta property="og:audio" content="{h(audio_url)}" />
+<meta property="og:audio:type" content="audio/mpeg" />
+<meta property="music:duration" content="{duration_s}" />
+<meta property="music:musician" content="{h(artist)}" />
+<meta name="twitter:card" content="player" />
+<meta name="twitter:title" content="{h(title)}" />
+<meta name="twitter:description" content="By {h(artist)} · Listen on Suno Library" />
+<meta name="twitter:image" content="{h(image_url)}" />
+<meta name="twitter:player" content="{h(share_url)}" />
+<meta name="twitter:player:width" content="480" />
+<meta name="twitter:player:height" content="600" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2240%22 fill=%22%23FF8C00%22/></svg>" />
+<style>
+  :root {{ color-scheme: dark; }}
+  * {{ box-sizing: border-box; }}
+  html, body {{ margin: 0; height: 100%; background: #0A0A0A; color: #F5F5F5; font-family: -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }}
+  body {{ position: relative; overflow-x: hidden; }}
+  .bg {{ position: fixed; inset: 0; background-image: url("{h(image_url)}"); background-size: cover; background-position: center; filter: blur(60px) saturate(1.3); opacity: 0.55; transform: scale(1.15); z-index: 0; }}
+  .scrim {{ position: fixed; inset: 0; background: linear-gradient(180deg, rgba(10,10,10,0.4) 0%, rgba(10,10,10,0.85) 60%, #0A0A0A 100%); z-index: 1; }}
+  .wrap {{ position: relative; z-index: 2; min-height: 100vh; display: flex; flex-direction: column; padding: 24px; max-width: 520px; margin: 0 auto; }}
+  .brand {{ display: flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: 2.5px; font-weight: 700; }}
+  .brand .dot {{ width: 8px; height: 8px; border-radius: 4px; background: #FF8C00; box-shadow: 0 0 16px #FF8C00; }}
+  .art {{ width: 100%; aspect-ratio: 1; max-width: 360px; align-self: center; margin: 28px auto 22px; border-radius: 22px; overflow: hidden; background: #181818; box-shadow: 0 30px 60px rgba(0,0,0,0.55); }}
+  .art img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
+  .title {{ font-size: 28px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.15; }}
+  .artist {{ color: #A3A3A3; font-size: 15px; margin-top: 6px; }}
+  .tags {{ color: #737373; font-size: 12px; margin-top: 10px; }}
+  audio {{ width: 100%; margin-top: 22px; accent-color: #FF8C00; }}
+  audio::-webkit-media-controls-panel {{ background-color: rgba(255,255,255,0.04); }}
+  .cta {{ display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 28px; padding: 14px 18px; border-radius: 28px; background: #FF8C00; color: #0A0A0A; text-decoration: none; font-weight: 800; font-size: 15px; box-shadow: 0 14px 30px rgba(255,140,0,0.35); }}
+  .cta:hover {{ filter: brightness(1.05); }}
+  .footer {{ margin-top: auto; padding-top: 32px; color: #737373; font-size: 12px; text-align: center; line-height: 1.5; }}
+  .footer a {{ color: #A3A3A3; text-decoration: none; }}
+</style>
+</head>
+<body>
+<div class="bg" aria-hidden="true"></div>
+<div class="scrim" aria-hidden="true"></div>
+<main class="wrap">
+  <div class="brand"><span class="dot"></span><span>SUNO LIBRARY</span></div>
+  <div class="art">{"<img src='" + h(image_url) + "' alt='" + h(title) + "' />" if image_url else ""}</div>
+  <div class="title">{h(title)}</div>
+  <div class="artist">By {h(artist)}</div>
+  {"<div class='tags'>" + h(tags) + "</div>" if tags else ""}
+  <audio controls preload="metadata" src="{h(audio_url)}"></audio>
+  <a class="cta" href="/" >Build your own library →</a>
+  <div class="footer">
+    Shared via <a href="/">Suno Library</a> · A native audio player for Suno creators
+  </div>
+</main>
+</body>
+</html>"""
+
+
+@api.get("/share/{slug}", response_class=HTMLResponse)
+async def share_page(slug: str):
+    """Public HTML page for share link recipients."""
+    data = await _resolve_share(slug)
+    song = data["song"]
+    share_url = f"/api/share/{slug}"
+    return HTMLResponse(_share_html(slug, song, share_url))
+
+
 @api.get("/")
 async def root():
     return {"name": "Suno Library API", "ok": True}
@@ -324,6 +483,8 @@ async def _startup():
     await db.users.create_index("email", unique=True)
     await db.songs.create_index([("user_id", 1), ("id", 1)], unique=True)
     await db.songs.create_index("user_id")
+    await db.shares.create_index("slug", unique=True)
+    await db.shares.create_index([("user_id", 1), ("song_id", 1)], unique=True)
     logger.info("Indexes ready")
 
 

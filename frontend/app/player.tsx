@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -8,7 +9,9 @@ import {
   GestureResponderEvent,
   Image,
   LayoutChangeEvent,
+  Platform,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -17,6 +20,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "@/src/api/client";
 import { usePlayer } from "@/src/context/PlayerContext";
 import { colors } from "@/src/theme";
+
+const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL ?? "";
 
 function fmt(ms: number): string {
   if (!isFinite(ms) || ms < 0) ms = 0;
@@ -49,6 +54,8 @@ export default function PlayerScreen() {
   const [seekWidth, setSeekWidth] = useState(0);
   const [favPending, setFavPending] = useState(false);
   const [localFav, setLocalFav] = useState<boolean | null>(null);
+  const [sharePending, setSharePending] = useState(false);
+  const [shareToast, setShareToast] = useState<string | null>(null);
 
   const onSeekLayout = (e: LayoutChangeEvent) => setSeekWidth(e.nativeEvent.layout.width);
   const onSeekPress = (e: GestureResponderEvent) => {
@@ -190,12 +197,30 @@ export default function PlayerScreen() {
 
       <View style={styles.bottomRow}>
         <Pressable testID="fav-btn" onPress={toggleFav} hitSlop={8} style={styles.bottomBtn}>
-          <Feather name="heart" size={20} color={isFav ? colors.accent : colors.textMuted} />
+          <Feather name="heart" size={18} color={isFav ? colors.accent : colors.textMuted} />
           <Text style={[styles.bottomLabel, isFav && { color: colors.accent }]}>
             {isFav ? "Favorited" : "Favorite"}
           </Text>
         </Pressable>
+
+        <Pressable
+          testID="share-btn"
+          onPress={onShare}
+          hitSlop={8}
+          disabled={sharePending}
+          style={[styles.bottomBtn, sharePending && { opacity: 0.6 }]}
+        >
+          <Feather name="share-2" size={18} color={colors.textMuted} />
+          <Text style={styles.bottomLabel}>{sharePending ? "Creating…" : "Share"}</Text>
+        </Pressable>
       </View>
+
+      {shareToast ? (
+        <View style={styles.toast} testID="share-toast">
+          <Feather name="check-circle" size={14} color={colors.accent} />
+          <Text style={styles.toastText}>{shareToast}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -285,7 +310,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 28,
     marginTop: 28,
+    gap: 12,
   },
-  bottomBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: colors.border },
+  bottomBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: colors.border },
   bottomLabel: { color: colors.textMuted, fontSize: 13, fontWeight: "600" },
+  toast: {
+    position: "absolute",
+    bottom: 36,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 22,
+    backgroundColor: "rgba(20,20,20,0.95)",
+    borderWidth: 1,
+    borderColor: "rgba(255,140,0,0.4)",
+  },
+  toastText: { color: colors.text, fontSize: 13, fontWeight: "600" },
 });
