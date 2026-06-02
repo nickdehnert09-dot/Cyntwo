@@ -13,7 +13,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api, type Song } from "@/src/api/client";
+import { api, type CynSong } from "@/src/api/client";
 import { usePlayer } from "@/src/context/PlayerContext";
 import { SongRow } from "@/src/components/SongRow";
 import { colors } from "@/src/theme";
@@ -22,19 +22,22 @@ export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { current, isPlaying, playFromList } = usePlayer();
-  const [songs, setSongs] = useState<Song[]>([]);
+  const [songs, setSongs] = useState<CynSong[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
     else setLoading(true);
+    setError(null);
     try {
-      const data = await api<Song[]>("/library");
-      setSongs(data);
-    } catch (e) {
-      console.warn("library load failed", e);
+      const data = await api<CynSong[] | { songs: CynSong[] }>("/songs");
+      const list = Array.isArray(data) ? data : (data?.songs ?? []);
+      setSongs(list);
+    } catch (e: any) {
+      setError(e?.message ?? "Could not load library");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -43,25 +46,18 @@ export default function LibraryScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const onPlay = (song: Song) => {
-    const filtered = filteredSongs;
-    const idx = filtered.findIndex((s) => s.id === song.id);
+  const searchLower = search.trim().toLowerCase();
+  const filtered = searchLower
+    ? songs.filter((s) =>
+        (s.title || "").toLowerCase().includes(searchLower) ||
+        (s.tags || "").toLowerCase().includes(searchLower) ||
+        (s.artist || "").toLowerCase().includes(searchLower))
+    : songs;
+
+  const onPlay = (song: CynSong) => {
+    const idx = filtered.findIndex((s) => s.sunoId === song.sunoId);
     if (idx >= 0) playFromList(filtered, idx);
   };
-
-  const onToggleFav = async (song: Song) => {
-    // optimistic
-    setSongs((prev) => prev.map((s) => s.id === song.id ? { ...s, is_favorite: !s.is_favorite } : s));
-    try { await api(`/library/favorite/${song.id}`, { method: "POST" }); }
-    catch { load(); }
-  };
-
-  const searchLower = search.trim().toLowerCase();
-  const filteredSongs = searchLower
-    ? songs.filter((s) =>
-        s.title.toLowerCase().includes(searchLower) ||
-        s.tags.toLowerCase().includes(searchLower))
-    : songs;
 
   const bottomPad = insets.bottom + 70 + (current ? 70 : 0) + 16;
 
@@ -80,7 +76,7 @@ export default function LibraryScreen() {
             testID="library-search"
             value={search}
             onChangeText={setSearch}
-            placeholder="Search title or tag"
+            placeholder="Search title, artist, or tag"
             placeholderTextColor={colors.textDim}
             autoCapitalize="none"
             autoCorrect={false}
@@ -96,16 +92,15 @@ export default function LibraryScreen() {
 
       <FlatList
         testID="library-list"
-        data={filteredSongs}
-        keyExtractor={(s) => s.id}
+        data={filtered}
+        keyExtractor={(s) => s.sunoId || s.id}
         contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: bottomPad, paddingTop: 4 }}
         renderItem={({ item }) => (
           <SongRow
             song={item}
-            active={current?.id === item.id}
-            isPlaying={isPlaying && current?.id === item.id}
+            active={current?.sunoId === item.sunoId}
+            isPlaying={isPlaying && current?.sunoId === item.sunoId}
             onPress={() => onPlay(item)}
-            onToggleFavorite={() => onToggleFav(item)}
           />
         )}
         refreshControl={
@@ -120,6 +115,19 @@ export default function LibraryScreen() {
             <View style={styles.empty}>
               <ActivityIndicator color={colors.accent} />
             </View>
+          ) : error ? (
+            <View style={styles.empty}>
+              <Feather name="alert-circle" size={36} color={colors.danger} />
+              <Text style={styles.emptyTitle}>Couldn't load library</Text>
+              <Text style={styles.emptyText}>{error}</Text>
+              <Pressable
+                onPress={() => load()}
+                style={({ pressed }) => [styles.cta, { opacity: pressed ? 0.85 : 1 }]}
+              >
+                <Feather name="refresh-cw" size={16} color="#0A0A0A" />
+                <Text style={styles.ctaText}>Retry</Text>
+              </Pressable>
+            </View>
           ) : (
             <View style={styles.empty}>
               <Image
@@ -129,7 +137,7 @@ export default function LibraryScreen() {
               />
               <Text style={styles.emptyTitle}>Your library is empty</Text>
               <Text style={styles.emptyText}>
-                Sign in to Suno inside the app and we'll pull every track you've made.
+                Sign in to Suno inside the app and we'll import every published track on your profile.
               </Text>
               <Pressable
                 testID="connect-suno-cta"
@@ -195,13 +203,13 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,140,0,0.3)",
   },
   reimportText: { color: colors.accent, fontSize: 12, fontWeight: "700" },
-  empty: { alignItems: "center", paddingTop: 40, paddingHorizontal: 32 },
+  empty: { alignItems: "center", paddingTop: 40, paddingHorizontal: 32, gap: 8 },
   emptyArt: { width: 200, height: 200, opacity: 0.85 },
   emptyTitle: { color: colors.text, fontSize: 20, fontWeight: "700", marginTop: 16 },
-  emptyText: { color: colors.textMuted, fontSize: 14, textAlign: "center", lineHeight: 20, marginTop: 8 },
+  emptyText: { color: colors.textMuted, fontSize: 14, textAlign: "center", lineHeight: 20, marginTop: 4 },
   cta: {
     flexDirection: "row", alignItems: "center", gap: 8,
-    marginTop: 22, paddingHorizontal: 22, height: 48,
+    marginTop: 18, paddingHorizontal: 22, height: 48,
     borderRadius: 24, backgroundColor: colors.accent,
     shadowColor: colors.accent, shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8,
   },

@@ -1,7 +1,13 @@
+/**
+ * CynLabs API client.
+ *
+ * Backend: https://cynlabs.xyz/api
+ * Auth: Bearer token (returned by mobile OAuth flow as the deep-link `token` query param).
+ */
 import { storage } from "@/src/utils/storage";
 
-const BASE = process.env.EXPO_PUBLIC_BACKEND_URL ?? "";
-const TOKEN_KEY = "auth_token";
+export const CYNLABS_BASE = "https://cynlabs.xyz/api";
+const TOKEN_KEY = "cynlabs_token";
 
 export type ApiError = { message: string; status: number };
 
@@ -27,16 +33,18 @@ export async function api<T = any>(
     const token = await getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
-  const res = await fetch(`${BASE}/api${path}`, {
+  const res = await fetch(`${CYNLABS_BASE}${path}`, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
-  const data = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
+  const data = text
+    ? (() => { try { return JSON.parse(text); } catch { return text; } })()
+    : null;
   if (!res.ok) {
     const message =
-      (data && typeof data === "object" && (data.detail || data.message)) ||
+      (data && typeof data === "object" && (data.message || data.error || data.detail)) ||
       `Request failed (${res.status})`;
     const err: ApiError = { message: String(message), status: res.status };
     throw err;
@@ -44,23 +52,38 @@ export async function api<T = any>(
   return data as T;
 }
 
-export type Song = {
+// --- Domain types matching CynLabs schema ---
+export type CynUser = {
   id: string;
-  title: string;
-  audio_url: string | null;
-  image_url: string | null;
-  video_url: string | null;
-  tags: string;
-  prompt: string;
-  duration: number | null;
-  play_count: number;
-  like_count: number;
-  created_at: string | null;
-  handle: string | null;
-  display_name: string | null;
-  is_favorite: boolean;
-  is_public: boolean;
-  imported_at: string;
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  profileImageUrl?: string | null;
 };
 
-export type User = { id: string; email: string; created_at: string };
+export type CynSong = {
+  id: string;            // CynLabs internal id
+  sunoId: string;
+  title: string;
+  artist?: string | null;
+  genre?: string | null;
+  tags?: string | null;
+  lyrics?: string | null;
+  audioUrl: string;
+  imageUrl?: string | null;
+  duration?: number | null;
+  bpm?: number | null;
+  key?: string | null;
+  style?: string | null;
+  model?: string | null;
+  isPublic?: boolean;
+  status?: string | null;
+  createdAt?: string | null;
+};
+
+export type ImportResult = {
+  imported: number;
+  skipped: number;
+  total: number;
+  errors?: { sunoId?: string; message?: string }[];
+};

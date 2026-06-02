@@ -1,27 +1,21 @@
 import { Feather } from "@expo/vector-icons";
-import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import {
   Dimensions,
   GestureResponderEvent,
   Image,
   LayoutChangeEvent,
-  Platform,
   Pressable,
-  Share,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api } from "@/src/api/client";
 import { usePlayer } from "@/src/context/PlayerContext";
 import { colors } from "@/src/theme";
-
-const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL ?? "";
 
 function fmt(ms: number): string {
   if (!isFinite(ms) || ms < 0) ms = 0;
@@ -52,10 +46,6 @@ export default function PlayerScreen() {
   } = usePlayer();
 
   const [seekWidth, setSeekWidth] = useState(0);
-  const [favPending, setFavPending] = useState(false);
-  const [localFav, setLocalFav] = useState<boolean | null>(null);
-  const [sharePending, setSharePending] = useState(false);
-  const [shareToast, setShareToast] = useState<string | null>(null);
 
   const onSeekLayout = (e: LayoutChangeEvent) => setSeekWidth(e.nativeEvent.layout.width);
   const onSeekPress = (e: GestureResponderEvent) => {
@@ -64,21 +54,6 @@ export default function PlayerScreen() {
     const ratio = Math.max(0, Math.min(1, x / seekWidth));
     seekTo(ratio * durationMs);
   };
-
-  const toggleFav = useCallback(async () => {
-    if (!current || favPending) return;
-    setFavPending(true);
-    const cur = (localFav ?? current.is_favorite) ? false : true;
-    setLocalFav(cur);
-    try {
-      await api(`/library/favorite/${current.id}`, { method: "POST" });
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {
-      setLocalFav(!cur);
-    } finally {
-      setFavPending(false);
-    }
-  }, [current, favPending, localFav]);
 
   if (!current) {
     return (
@@ -92,13 +67,11 @@ export default function PlayerScreen() {
   }
 
   const progress = durationMs > 0 ? positionMs / durationMs : 0;
-  const isFav = localFav ?? current.is_favorite;
-  const repeatIcon = repeat === "one" ? "repeat" : repeat === "all" ? "repeat" : "repeat";
 
   return (
     <View style={styles.root}>
-      {current.image_url ? (
-        <Image source={{ uri: current.image_url }} style={StyleSheet.absoluteFill} blurRadius={40} />
+      {current.imageUrl ? (
+        <Image source={{ uri: current.imageUrl }} style={StyleSheet.absoluteFill} blurRadius={40} />
       ) : null}
       <LinearGradient
         colors={["rgba(10,10,10,0.6)", "rgba(10,10,10,0.9)", colors.bg]}
@@ -113,7 +86,7 @@ export default function PlayerScreen() {
         <View style={styles.headerCenter}>
           <Text style={styles.headerLabel}>NOW PLAYING</Text>
           <Text style={styles.headerHandle} numberOfLines={1}>
-            {current.display_name || current.handle || "Suno"}
+            {current.artist || "Suno"}
           </Text>
         </View>
         <View style={styles.iconBtn} />
@@ -121,8 +94,8 @@ export default function PlayerScreen() {
 
       <View style={styles.artworkWrap}>
         <View style={styles.artwork}>
-          {current.image_url ? (
-            <Image source={{ uri: current.image_url }} style={styles.artworkImg} />
+          {current.imageUrl ? (
+            <Image source={{ uri: current.imageUrl }} style={styles.artworkImg} />
           ) : (
             <Feather name="music" size={72} color={colors.textMuted} />
           )}
@@ -190,37 +163,10 @@ export default function PlayerScreen() {
           hitSlop={8}
           style={styles.smallBtn}
         >
-          <Feather name={repeatIcon} size={20} color={repeat !== "off" ? colors.accent : colors.textMuted} />
+          <Feather name="repeat" size={20} color={repeat !== "off" ? colors.accent : colors.textMuted} />
           {repeat === "one" ? <View style={styles.oneDot} /> : null}
         </Pressable>
       </View>
-
-      <View style={styles.bottomRow}>
-        <Pressable testID="fav-btn" onPress={toggleFav} hitSlop={8} style={styles.bottomBtn}>
-          <Feather name="heart" size={18} color={isFav ? colors.accent : colors.textMuted} />
-          <Text style={[styles.bottomLabel, isFav && { color: colors.accent }]}>
-            {isFav ? "Favorited" : "Favorite"}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          testID="share-btn"
-          onPress={onShare}
-          hitSlop={8}
-          disabled={sharePending}
-          style={[styles.bottomBtn, sharePending && { opacity: 0.6 }]}
-        >
-          <Feather name="share-2" size={18} color={colors.textMuted} />
-          <Text style={styles.bottomLabel}>{sharePending ? "Creating…" : "Share"}</Text>
-        </Pressable>
-      </View>
-
-      {shareToast ? (
-        <View style={styles.toast} testID="share-toast">
-          <Feather name="check-circle" size={14} color={colors.accent} />
-          <Text style={styles.toastText}>{shareToast}</Text>
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -305,28 +251,4 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 12,
   },
-  bottomRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    paddingHorizontal: 28,
-    marginTop: 28,
-    gap: 12,
-  },
-  bottomBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: colors.border },
-  bottomLabel: { color: colors.textMuted, fontSize: 13, fontWeight: "600" },
-  toast: {
-    position: "absolute",
-    bottom: 36,
-    alignSelf: "center",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 22,
-    backgroundColor: "rgba(20,20,20,0.95)",
-    borderWidth: 1,
-    borderColor: "rgba(255,140,0,0.4)",
-  },
-  toastText: { color: colors.text, fontSize: 13, fontWeight: "600" },
 });

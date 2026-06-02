@@ -1,19 +1,19 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
-import type { Song } from "@/src/api/client";
+import type { CynSong } from "@/src/api/client";
 
 export type RepeatMode = "off" | "all" | "one";
 
 type PlayerState = {
-  queue: Song[];
+  queue: CynSong[];
   currentIndex: number;
-  current: Song | null;
+  current: CynSong | null;
   isPlaying: boolean;
   positionMs: number;
   durationMs: number;
   shuffle: boolean;
   repeat: RepeatMode;
-  playFromList: (songs: Song[], index: number) => void;
+  playFromList: (songs: CynSong[], index: number) => void;
   toggle: () => void;
   next: () => void;
   prev: () => void;
@@ -26,8 +26,8 @@ type PlayerState = {
 const Ctx = createContext<PlayerState | null>(null);
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
-  const [queue, setQueue] = useState<Song[]>([]);
-  const [shuffleOrder, setShuffleOrder] = useState<number[] | null>(null); // indexes into queue
+  const [queue, setQueue] = useState<CynSong[]>([]);
+  const [shuffleOrder, setShuffleOrder] = useState<number[] | null>(null);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [positionMs, setPositionMs] = useState(0);
@@ -38,7 +38,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const playerRef = useRef<AudioPlayer | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // configure audio mode once
   useEffect(() => {
     setAudioModeAsync({
       playsInSilentMode: true,
@@ -49,7 +48,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const current = currentIndex >= 0 && currentIndex < queue.length ? queue[currentIndex] : null;
 
-  // poll player state
   useEffect(() => {
     if (!playerRef.current) return;
     if (tickRef.current) clearInterval(tickRef.current);
@@ -60,7 +58,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       const d = p.duration || 0;
       if (d > 0) setDurationMs(Math.floor(d * 1000));
       setIsPlaying(!!p.playing);
-      // handle end-of-track
       if (d > 0 && p.currentTime >= d - 0.25 && !p.playing) {
         handleTrackEnd();
       }
@@ -71,14 +68,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex, queue, repeat, shuffle]);
 
-  const loadAndPlay = useCallback((song: Song) => {
+  const loadAndPlay = useCallback((song: CynSong) => {
     try {
       if (playerRef.current) {
         playerRef.current.remove();
         playerRef.current = null;
       }
-      if (!song.audio_url) return;
-      const p = createAudioPlayer({ uri: song.audio_url });
+      if (!song.audioUrl) return;
+      const p = createAudioPlayer({ uri: song.audioUrl });
       playerRef.current = p;
       p.play();
       setIsPlaying(true);
@@ -89,17 +86,17 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const playIndex = useCallback((idx: number, q: Song[]) => {
+  const playIndex = useCallback((idx: number, q: CynSong[]) => {
     if (idx < 0 || idx >= q.length) return;
     setCurrentIndex(idx);
     loadAndPlay(q[idx]);
   }, [loadAndPlay]);
 
-  const playFromList = useCallback((songs: Song[], index: number) => {
-    const playable = songs.filter((s) => !!s.audio_url);
+  const playFromList = useCallback((songs: CynSong[], index: number) => {
+    const playable = songs.filter((s) => !!s.audioUrl);
     if (!playable.length) return;
     const startSong = songs[index];
-    const startIdx = Math.max(0, playable.findIndex((s) => s.id === startSong?.id));
+    const startIdx = Math.max(0, playable.findIndex((s) => s.sunoId === startSong?.sunoId));
     setQueue(playable);
     setShuffleOrder(shuffle ? buildShuffle(playable.length, startIdx) : null);
     playIndex(startIdx, playable);
@@ -116,12 +113,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (shuffleOrder) {
       const pos = positionInPlayOrder(currentIndex);
       const newPos = pos + dir;
-      if (newPos < 0) {
-        return repeat === "all" ? shuffleOrder[shuffleOrder.length - 1] : -1;
-      }
-      if (newPos >= shuffleOrder.length) {
-        return repeat === "all" ? shuffleOrder[0] : -1;
-      }
+      if (newPos < 0) return repeat === "all" ? shuffleOrder[shuffleOrder.length - 1] : -1;
+      if (newPos >= shuffleOrder.length) return repeat === "all" ? shuffleOrder[0] : -1;
       return shuffleOrder[newPos];
     }
     const newIdx = currentIndex + dir;
@@ -140,7 +133,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [nextIndexFor, playIndex, queue]);
 
   const prev = useCallback(() => {
-    // if more than 3s in, restart current
     if (positionMs > 3000 && playerRef.current) {
       playerRef.current.seekTo(0);
       setPositionMs(0);
@@ -205,7 +197,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setDurationMs(0);
   }, []);
 
-  // cleanup on unmount
   useEffect(() => {
     return () => {
       if (playerRef.current) {
@@ -216,22 +207,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<PlayerState>(() => ({
-    queue,
-    currentIndex,
-    current,
-    isPlaying,
-    positionMs,
-    durationMs,
-    shuffle,
-    repeat,
-    playFromList,
-    toggle,
-    next,
-    prev,
-    seekTo,
-    setShuffle,
-    cycleRepeat,
-    stop,
+    queue, currentIndex, current, isPlaying, positionMs, durationMs, shuffle, repeat,
+    playFromList, toggle, next, prev, seekTo, setShuffle, cycleRepeat, stop,
   }), [queue, currentIndex, current, isPlaying, positionMs, durationMs, shuffle, repeat, playFromList, toggle, next, prev, seekTo, setShuffle, cycleRepeat, stop]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -249,7 +226,6 @@ function buildShuffle(length: number, startIdx: number): number[] {
     const j = Math.floor(Math.random() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
-  // ensure start is first
   const at = arr.indexOf(startIdx);
   if (at > 0) {
     [arr[0], arr[at]] = [arr[at], arr[0]];

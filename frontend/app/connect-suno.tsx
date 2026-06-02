@@ -1,17 +1,12 @@
 /**
- * Connect Suno: the WebView importer.
+ * Connect Suno: WebView importer wired to CynLabs backend.
  *
- * Strategy:
- *  1. Open suno.com inside an in-app WebView.
- *  2. Before the page loads, inject JS that monkey-patches window.fetch and XMLHttpRequest
- *     so we can inspect every API response Suno's own SPA makes.
- *  3. When we see responses that look like clip lists (key shape: `clips` array, or
- *     an array of objects with `audio_url` / `metadata` fields), we extract them and
- *     postMessage them back to React Native.
- *  4. RN buffers them, dedupes by id, and posts to our backend `/library/import`.
- *
- * This works because the JS runs inside suno.com's origin, so Clerk's HttpOnly session
- * cookie is automatically included by the browser — we never need to touch it ourselves.
+ * Mechanism (unchanged):
+ *  - Open suno.com/me in a WebView
+ *  - Inject JS that hooks fetch/XHR BEFORE content loads
+ *  - Capture clip arrays from Suno's own authenticated API responses
+ *  - Filter strict: only is_public=true clips (no drafts, no losing versions)
+ *  - Remap to CynLabs schema and POST to https://cynlabs.xyz/api/songs/import
  */
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -27,10 +22,11 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
-import { api } from "@/src/api/client";
+import { api, type ImportResult } from "@/src/api/client";
 import { colors } from "@/src/theme";
 
-// Injected before page content loads — hooks fetch / XHR.
+// JS injected into suno.com before content loads. Hooks fetch + XHR, filters to
+// is_public, and posts a normalized payload back to the React Native bridge.
 const SNIFFER = `
 (function() {
   if (window.__sunoSniffer) return;
@@ -49,52 +45,50 @@ const SNIFFER = `
     return ('audio_url' in obj) || ('metadata' in obj && obj.metadata && ('tags' in obj.metadata || 'prompt' in obj.metadata));
   }
 
-  // Strict: only accept clips the user has actually PUBLISHED.
-  // Suno generates many drafts per prompt; we only want the songs flagged is_public.
   function isPublished(c) {
     if (!c) return false;
     if (c.is_trashed === true) return false;
     if (c.is_public === true) return true;
     if (c.public === true) return true;
     if (c.is_published === true) return true;
-    // Some payloads nest the flag under .clip
     if (c.clip && (c.clip.is_public === true || c.clip.public === true)) return true;
     return false;
   }
 
   function extractClips(data) {
     if (!data) return [];
-    if (Array.isArray(data)) {
-      return data.filter(looksLikeClip);
-    }
+    if (Array.isArray(data)) return data.filter(looksLikeClip);
     if (typeof data === 'object') {
       if (Array.isArray(data.clips)) return data.clips.filter(looksLikeClip);
-      // Recurse one level deep for nested wrappers (data.data, data.results, etc.)
-      for (const k of Object.keys(data)) {
-        const v = data[k];
+      for (var k in data) {
+        var v = data[k];
         if (Array.isArray(v) && v.length && looksLikeClip(v[0])) return v.filter(looksLikeClip);
       }
     }
     return [];
   }
 
+  // Remap Suno clip -> CynLabs songs/import schema (camelCase).
   function normalize(c) {
     var meta = c.metadata || {};
+    var tags = meta.tags || c.tags || '';
+    var firstTag = (tags.split(/[,|]+/)[0] || '').trim();
     return {
-      id: c.id || c.clip_id,
+      sunoId: c.id || c.clip_id,
       title: c.title || 'Untitled',
-      audio_url: c.audio_url || null,
-      image_url: c.image_url || c.image_large_url || null,
-      video_url: c.video_url || null,
-      tags: meta.tags || c.tags || '',
-      prompt: meta.prompt || c.prompt || '',
-      duration: meta.duration || c.duration || null,
-      play_count: c.play_count || 0,
-      like_count: c.upvote_count || c.like_count || 0,
-      created_at: c.created_at || null,
-      handle: (c.handle) || (c.user && c.user.handle) || null,
-      display_name: (c.display_name) || (c.user && c.user.display_name) || null,
-      is_public: (c.is_public === true) || (c.public === true) || (c.is_published === true),
+      artist: c.display_name || (c.user && c.user.display_name) || c.handle || (c.user && c.user.handle) || null,
+      genre: firstTag || null,
+      tags: tags || null,
+      lyrics: meta.prompt || c.prompt || null,
+      audioUrl: c.audio_url || null,
+      imageUrl: c.image_large_url || c.image_url || null,
+      duration: (typeof meta.duration === 'number' ? meta.duration : (typeof c.duration === 'number' ? c.duration : null)),
+      bpm: (typeof meta.bpm === 'number' ? Math.round(meta.bpm) : null),
+      key: meta.key || null,
+      style: meta.style || meta.gpt_description_prompt || null,
+      model: c.model_name || meta.model_name || null,
+      isPublic: true,
+      status: 'published',
     };
   }
 
@@ -103,12 +97,11 @@ const SNIFFER = `
     if (!clips.length) return;
     var published = clips.filter(isPublished);
     if (!published.length) return;
-    var songs = published.map(normalize).filter(function(s) { return s.id && s.audio_url; });
+    var songs = published.map(normalize).filter(function(s) { return s.sunoId && s.audioUrl && s.title; });
     if (!songs.length) return;
     post({ type: 'songs', count: songs.length, url: url, songs: songs });
   }
 
-  // --- fetch hook ---
   var origFetch = window.fetch;
   window.fetch = function(input, init) {
     var url = (typeof input === 'string') ? input : (input && input.url) || '';
@@ -125,7 +118,6 @@ const SNIFFER = `
     });
   };
 
-  // --- XHR hook ---
   var origOpen = XMLHttpRequest.prototype.open;
   var origSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function(method, url) {
@@ -152,7 +144,6 @@ const SNIFFER = `
     return origSend.apply(self, arguments);
   };
 
-  // Re-post readiness on navigation so we know which screen the user is on.
   var lastUrl = location.href;
   setInterval(function() {
     if (location.href !== lastUrl) {
@@ -171,14 +162,14 @@ export default function ConnectSunoScreen() {
   const insets = useSafeAreaInsets();
   const webRef = useRef<WebView>(null);
   const [status, setStatus] = useState<Status>("loading");
-  const [currentUrl, setCurrentUrl] = useState("");
   const [capturedCount, setCapturedCount] = useState(0);
-  const [importResult, setImportResult] = useState<{ inserted: number; updated: number; total: number } | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const seenIds = useRef<Set<string>>(new Set());
   const buffer = useRef<any[]>([]);
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const totals = useRef<ImportResult>({ imported: 0, skipped: 0, total: 0 });
 
   const flush = useCallback(async () => {
     if (!buffer.current.length) return;
@@ -186,11 +177,17 @@ export default function ConnectSunoScreen() {
     buffer.current = [];
     setStatus("capturing");
     try {
-      const res = await api<{ inserted: number; updated: number; total: number }>("/library/import", {
+      const res = await api<ImportResult>("/songs/import", {
         method: "POST",
         body: { songs: batch },
       });
-      setImportResult(res);
+      totals.current = {
+        imported: totals.current.imported + (res.imported || 0),
+        skipped: totals.current.skipped + (res.skipped || 0),
+        total: res.total ?? totals.current.total,
+        errors: [...(totals.current.errors || []), ...(res.errors || [])],
+      };
+      setImportResult({ ...totals.current });
     } catch (e: any) {
       setError(e?.message ?? "Import failed");
     }
@@ -206,13 +203,11 @@ export default function ConnectSunoScreen() {
       const msg = JSON.parse(e.nativeEvent.data);
       if (msg.type === "sniffer_ready") {
         setStatus("ready");
-      } else if (msg.type === "url") {
-        setCurrentUrl(msg.url);
       } else if (msg.type === "songs" && Array.isArray(msg.songs)) {
         const fresh: any[] = [];
         for (const s of msg.songs) {
-          if (!s || !s.id || seenIds.current.has(s.id)) continue;
-          seenIds.current.add(s.id);
+          if (!s || !s.sunoId || seenIds.current.has(s.sunoId)) continue;
+          seenIds.current.add(s.sunoId);
           fresh.push(s);
         }
         if (fresh.length) {
@@ -232,7 +227,7 @@ export default function ConnectSunoScreen() {
     if (capturedCount === 0) {
       Alert.alert(
         "No tracks captured yet",
-        "Open your profile or the 'Me' page on Suno so your songs load — they'll import automatically.",
+        "Open your profile or songs page on Suno so your published tracks load — we'll grab them automatically.",
       );
       return;
     }
@@ -250,9 +245,11 @@ export default function ConnectSunoScreen() {
         <View style={styles.topInfo}>
           <Text style={styles.topTitle}>Connect Suno</Text>
           <Text style={styles.topSub} numberOfLines={1}>
-            {status === "loading" ? "Loading…" :
-             capturedCount > 0 ? `${capturedCount} tracks captured` :
-             "Sign in to your Suno account"}
+            {status === "loading"
+              ? "Loading…"
+              : capturedCount > 0
+                ? `${capturedCount} ${capturedCount === 1 ? "track" : "tracks"} captured`
+                : "Sign in to your Suno account"}
           </Text>
         </View>
         {capturedCount > 0 && status !== "done" ? (
@@ -273,10 +270,15 @@ export default function ConnectSunoScreen() {
           <View style={styles.doneIcon}>
             <Feather name="check" size={28} color="#0A0A0A" />
           </View>
-          <Text style={styles.doneTitle}>Library imported</Text>
+          <Text style={styles.doneTitle}>Imported to CynLabs</Text>
           <Text style={styles.doneSub}>
-            {importResult.inserted} new · {importResult.updated} updated · {importResult.total} total
+            {importResult.imported} new · {importResult.skipped} skipped · {importResult.total} total
           </Text>
+          {importResult.errors && importResult.errors.length > 0 ? (
+            <Text style={styles.doneNote}>
+              {importResult.errors.length} item{importResult.errors.length === 1 ? "" : "s"} had errors and were skipped.
+            </Text>
+          ) : null}
           <Pressable testID="back-to-library" onPress={close} style={styles.doneCta}>
             <Text style={styles.doneCtaText}>Open library</Text>
           </Pressable>
@@ -286,7 +288,7 @@ export default function ConnectSunoScreen() {
           <View style={styles.banner}>
             <Feather name="info" size={14} color={colors.accent} />
             <Text style={styles.bannerText}>
-              Sign in below, then open your profile or songs page.{"\n"}
+              Sign in to Suno below, then open your profile or songs page.{"\n"}
               We only capture tracks you've published publicly.
             </Text>
           </View>
@@ -298,7 +300,6 @@ export default function ConnectSunoScreen() {
               source={{ uri: "https://suno.com/me" }}
               injectedJavaScriptBeforeContentLoaded={SNIFFER}
               onMessage={onMessage}
-              onLoadStart={() => setStatus((s) => s === "loading" ? "loading" : s)}
               onError={(e) => setError(e.nativeEvent.description ?? "Failed to load Suno")}
               sharedCookiesEnabled
               thirdPartyCookiesEnabled
@@ -394,6 +395,7 @@ const styles = StyleSheet.create({
   },
   doneTitle: { color: colors.text, fontSize: 22, fontWeight: "800", marginTop: 6 },
   doneSub: { color: colors.textMuted, fontSize: 14, textAlign: "center" },
+  doneNote: { color: colors.textDim, fontSize: 12, textAlign: "center", marginTop: 4 },
   doneCta: {
     marginTop: 18,
     paddingHorizontal: 28, height: 48, borderRadius: 24,

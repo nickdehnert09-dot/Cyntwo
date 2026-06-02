@@ -1,32 +1,45 @@
 # Suno Library — Product Requirements
 
 ## Vision
-A native-feeling mobile audio player for Suno AI creators. Users sign in, then import their entire public Suno catalog in one tap via an in-app WebView and play it back with a real audio player (mini + full-screen).
+Mobile app (Expo/React Native) that imports a Suno creator's **published** catalog into the **existing CynLabs backend** (`https://cynlabs.xyz/api`) and plays it back natively. **No new backend, no new database.** The local FastAPI under `/app/backend` is unused and kept only as dead code.
 
-## Why this approach
-Suno deprecated the legacy `studio-api.suno.ai/api/profile/v2/{username}` endpoint (now HTTP 503). Public profile pages are React Server Components that no longer ship song data in HTML, and all current API calls require a Clerk-authenticated session. So the only sane way to fetch a user's library is to let them sign in inside a WebView and capture their already-authenticated traffic.
+## Backend (existing, NOT modified)
+- Host: `https://cynlabs.xyz/api`
+- Auth: Passport + Google OAuth, **session token returned to mobile via deep link**
+  - Start: `GET /api/login?mobile=1&returnUrl=suno-mobile://auth-callback`
+  - Server completes Google OAuth, redirects to `suno-mobile://auth-callback?token=<SESSION_ID>`
+  - App stores token, sends `Authorization: Bearer <token>` on every request
+- Endpoints used by app:
+  - `GET /api/auth/user` → `{ user: {...} | null }`
+  - `GET /api/songs` → list of `CynSong` (camelCase)
+  - `POST /api/songs/import` → body `{ songs: [...] }` → `{ imported, skipped, total, errors }`
 
-## Architecture
+## Song schema (CynLabs)
+```
+sunoId, title, artist, genre, tags, lyrics, audioUrl, imageUrl,
+duration, bpm, key, style, model, isPublic, status
+```
+Mapping from Suno's clip payload happens inside the WebView sniffer (see `app/connect-suno.tsx`).
 
-### Backend (FastAPI + MongoDB)
-- `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` — JWT (30d) + bcrypt
-- `POST /api/library/import` — bulk upsert of song dicts (dedupes by `(user_id, song_id)`)
-- `GET /api/library?favorites_only=` — list user's songs, newest first
-- `POST /api/library/favorite/{song_id}` — toggle
-- `DELETE /api/library/song/{song_id}`, `DELETE /api/library` — remove
-- `POST /api/library/share/{song_id}` — create/get short share slug (idempotent, per-user)
-- `DELETE /api/library/share/{song_id}` — revoke share
-- `GET /api/share/{slug}/info` — **public** JSON metadata, increments view counter
-- `GET /api/share/{slug}` — **public** SSR'd HTML listen page with og/twitter:player meta tags + native `<audio>` element + signup funnel CTA
-
-### Frontend (Expo Router, expo-audio, react-native-webview)
-- `(auth)/login`, `(auth)/signup`
-- `(tabs)/index` Library, `(tabs)/favorites`, `(tabs)/account`
-- `connect-suno` modal — WebView pointed at `suno.com/me`, injected JS hooks `window.fetch` + `XMLHttpRequest` before content load and posts captured clip arrays back to RN
-- `player` modal — full-screen Now Playing with seek, shuffle, repeat, favorite
+## Frontend (Expo)
+- `app.json` scheme: `suno-mobile` (matches backend's allowed list)
+- `(auth)/login` — single "Sign in with Google" button; uses `expo-web-browser` `openAuthSessionAsync`
+- `(tabs)/index` — Library list from `GET /api/songs` (artwork, search, sync button)
+- `(tabs)/account` — user info, sync, sign-out
+- `connect-suno` — WebView at `suno.com/me` with injected `fetch`/`XHR` sniffer; filters strict `is_public === true`; remaps to CynLabs schema; POSTs to `/api/songs/import`
+- `player` — full-screen audio player (seek / shuffle / repeat / next / prev); built on `expo-audio`
 - `MiniPlayer` — sticky above tab bar
-- `PlayerContext` — expo-audio based with queue, shuffle, repeat, seek
 
-## Key technical notes
-- Background audio: `expo-audio` is configured with `shouldPlayInBackground: true` + `UIBackgroundModes:["audio"]` in app.json. **Requires a native build to actually play in the background** — won't work in Expo Go.
-- WebView importer: works because the injected JS runs inside `suno.com` origin, so Clerk's HttpOnly session cookie is automatically attached by the browser to every fetch — we never have to touch the cookie ourselves.
+## Why the WebView capture works
+Injected JS runs inside `suno.com` origin, so Suno's own Clerk-authenticated cookies are automatically sent on `fetch` calls — we just patch `window.fetch`/`XHR` to clone responses and look for clip arrays with `is_public === true`. Zero copy-paste, zero session-cookie handling for Suno.
+
+## What was removed in this iteration
+- Local FastAPI auth (JWT, register/login) — unwired
+- Local FastAPI library + favorites + share endpoints — unwired
+- Favorites tab — backend doesn't have favorites yet (skipped for v1)
+- Public share-link feature — backend doesn't have shares (skipped for v1)
+- Signup screen — replaced by single Google sign-in
+
+## Known constraints
+- `cynlabs.xyz` DNS does not resolve from the Emergent preview pod — the OAuth flow can only be verified on a real device (or a network with public DNS access).
+- Background audio playback (lock-screen controls) needs a native build; preview / Expo Go is foreground only.

@@ -1,8 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { usePlayer } from "@/src/context/PlayerContext";
 import { colors } from "@/src/theme";
@@ -13,11 +12,14 @@ export default function AccountScreen() {
   const { user, logout } = useAuth();
   const { current, stop } = usePlayer();
 
+  const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.email || "Signed in";
+
   const onLogout = () => {
     Alert.alert("Sign out?", "You'll need to sign in again to see your library.", [
       { text: "Cancel", style: "cancel" },
       {
-        text: "Sign out", style: "destructive",
+        text: "Sign out",
+        style: "destructive",
         onPress: async () => {
           stop();
           await logout();
@@ -25,54 +27,6 @@ export default function AccountScreen() {
         },
       },
     ]);
-  };
-
-  const onCleanupDrafts = () => {
-    Alert.alert(
-      "Remove drafts & unpublished?",
-      "Drops every track that isn't flagged public on Suno. Your published songs stay.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove", style: "destructive",
-          onPress: async () => {
-            try {
-              const res = await api<{ deleted: number }>("/library/unpublished", { method: "DELETE" });
-              Alert.alert(
-                res.deleted > 0 ? "Cleaned up" : "Nothing to remove",
-                res.deleted > 0
-                  ? `Removed ${res.deleted} unpublished ${res.deleted === 1 ? "track" : "tracks"}.`
-                  : "Every track in your library is already flagged public.",
-              );
-            } catch (e: any) {
-              Alert.alert("Failed", e?.message ?? "Could not clean up");
-            }
-          },
-        },
-      ],
-    );
-  };
-
-  const onClearLibrary = () => {
-    Alert.alert(
-      "Clear library?",
-      "This removes all imported tracks from this app. Your Suno account is not touched.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Clear", style: "destructive",
-          onPress: async () => {
-            try {
-              stop();
-              await api("/library", { method: "DELETE" });
-              Alert.alert("Done", "Library cleared.");
-            } catch (e: any) {
-              Alert.alert("Failed", e?.message ?? "Could not clear library");
-            }
-          },
-        },
-      ],
-    );
   };
 
   const bottomPad = insets.bottom + 70 + (current ? 70 : 0) + 16;
@@ -86,12 +40,17 @@ export default function AccountScreen() {
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: bottomPad, gap: 16 }}>
         <View style={styles.card}>
-          <View style={styles.avatar}>
-            <Feather name="user" size={22} color={colors.accent} />
-          </View>
+          {user?.profileImageUrl ? (
+            <Image source={{ uri: user.profileImageUrl }} style={styles.avatarImg} />
+          ) : (
+            <View style={styles.avatar}>
+              <Feather name="user" size={22} color={colors.accent} />
+            </View>
+          )}
           <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Signed in as</Text>
-            <Text testID="account-email" style={styles.value}>{user?.email}</Text>
+            <Text style={styles.label}>Signed in via Google</Text>
+            <Text testID="account-name" style={styles.value}>{fullName}</Text>
+            {user?.email ? <Text style={styles.sub}>{user.email}</Text> : null}
           </View>
         </View>
 
@@ -103,34 +62,9 @@ export default function AccountScreen() {
           <Feather name="refresh-cw" size={18} color={colors.accent} />
           <View style={{ flex: 1 }}>
             <Text style={styles.actionTitle}>Sync from Suno</Text>
-            <Text style={styles.actionSub}>Pull the latest tracks from your Suno profile</Text>
+            <Text style={styles.actionSub}>Pull your latest published tracks into CynLabs</Text>
           </View>
           <Feather name="chevron-right" size={18} color={colors.textDim} />
-        </Pressable>
-
-        <Pressable
-          testID="account-cleanup-drafts"
-          onPress={onCleanupDrafts}
-          style={({ pressed }) => [styles.actionRow, pressed && { opacity: 0.8 }]}
-        >
-          <Feather name="filter" size={18} color={colors.accent} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.actionTitle}>Remove drafts & unpublished</Text>
-            <Text style={styles.actionSub}>Keeps only the tracks you've actually published on Suno</Text>
-          </View>
-          <Feather name="chevron-right" size={18} color={colors.textDim} />
-        </Pressable>
-
-        <Pressable
-          testID="account-clear"
-          onPress={onClearLibrary}
-          style={({ pressed }) => [styles.actionRow, pressed && { opacity: 0.8 }]}
-        >
-          <Feather name="trash-2" size={18} color={colors.danger} />
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.actionTitle, { color: colors.danger }]}>Clear local library</Text>
-            <Text style={styles.actionSub}>Doesn't affect your Suno account</Text>
-          </View>
         </Pressable>
 
         <Pressable
@@ -144,7 +78,7 @@ export default function AccountScreen() {
           </View>
         </Pressable>
 
-        <Text style={styles.footer}>Suno Library · v1.0</Text>
+        <Text style={styles.footer}>Suno · CynLabs · v1.0</Text>
       </ScrollView>
     </View>
   );
@@ -166,13 +100,15 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   avatar: {
-    width: 48, height: 48, borderRadius: 24,
+    width: 52, height: 52, borderRadius: 26,
     backgroundColor: colors.accentSoft,
     alignItems: "center", justifyContent: "center",
     borderWidth: 1, borderColor: "rgba(255,140,0,0.3)",
   },
+  avatarImg: { width: 52, height: 52, borderRadius: 26 },
   label: { color: colors.textMuted, fontSize: 11, fontWeight: "700", letterSpacing: 1 },
-  value: { color: colors.text, fontSize: 15, fontWeight: "600", marginTop: 4 },
+  value: { color: colors.text, fontSize: 16, fontWeight: "700", marginTop: 4 },
+  sub: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   actionRow: {
     flexDirection: "row",
     alignItems: "center",

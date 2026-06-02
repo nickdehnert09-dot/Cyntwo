@@ -1,32 +1,25 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
-import type { Song } from "@/src/api/client";
+import type { CynSong } from "@/src/api/client";
 import { colors } from "@/src/theme";
 
-function fmtDuration(sec: number | null): string {
+function fmtDuration(sec: number | null | undefined): string {
   if (!sec || !isFinite(sec)) return "";
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function fmtCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
 type Props = {
-  song: Song;
+  song: CynSong;
   active?: boolean;
   isPlaying?: boolean;
   onPress: () => void;
-  onToggleFavorite: () => void;
 };
 
-export function SongRow({ song, active, isPlaying, onPress, onToggleFavorite }: Props) {
-  const tags = song.tags
+export function SongRow({ song, active, isPlaying, onPress }: Props) {
+  const tagPieces = (song.tags || "")
     .split(/[,|]+/)
     .map((t) => t.trim())
     .filter(Boolean)
@@ -34,7 +27,7 @@ export function SongRow({ song, active, isPlaying, onPress, onToggleFavorite }: 
 
   return (
     <Pressable
-      testID={`song-row-${song.id}`}
+      testID={`song-row-${song.sunoId}`}
       onPress={async () => {
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         onPress();
@@ -46,8 +39,8 @@ export function SongRow({ song, active, isPlaying, onPress, onToggleFavorite }: 
       ]}
     >
       <View style={styles.artwork}>
-        {song.image_url ? (
-          <Image source={{ uri: song.image_url }} style={styles.artworkImg} />
+        {song.imageUrl ? (
+          <Image source={{ uri: song.imageUrl }} style={styles.artworkImg} />
         ) : (
           <Feather name="music" size={20} color={colors.textMuted} />
         )}
@@ -62,46 +55,15 @@ export function SongRow({ song, active, isPlaying, onPress, onToggleFavorite }: 
         <Text style={[styles.title, active && { color: colors.accent }]} numberOfLines={1}>
           {song.title}
         </Text>
-        <View style={styles.metaRow}>
-          {tags.length > 0 ? (
-            <Text style={styles.tag} numberOfLines={1}>{tags.join(" · ")}</Text>
-          ) : (
-            <Text style={styles.tag} numberOfLines={1}>{song.display_name || song.handle || "Suno"}</Text>
-          )}
-        </View>
-        <View style={styles.statsRow}>
-          {song.play_count > 0 && (
-            <View style={styles.statItem}>
-              <Feather name="play" size={10} color={colors.textDim} />
-              <Text style={styles.stat}>{fmtCount(song.play_count)}</Text>
-            </View>
-          )}
-          {song.like_count > 0 && (
-            <View style={styles.statItem}>
-              <Feather name="heart" size={10} color={colors.textDim} />
-              <Text style={styles.stat}>{fmtCount(song.like_count)}</Text>
-            </View>
-          )}
-          {song.duration ? <Text style={styles.stat}>{fmtDuration(song.duration)}</Text> : null}
-        </View>
+        <Text style={styles.tag} numberOfLines={1}>
+          {tagPieces.length > 0 ? tagPieces.join(" · ") : (song.artist || song.genre || "Suno")}
+        </Text>
+        {song.duration ? (
+          <Text style={styles.stat}>{fmtDuration(song.duration)}</Text>
+        ) : null}
       </View>
 
-      <Pressable
-        testID={`favorite-btn-${song.id}`}
-        hitSlop={10}
-        onPress={async (e) => {
-          e.stopPropagation();
-          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          onToggleFavorite();
-        }}
-        style={styles.favBtn}
-      >
-        <Feather
-          name="heart"
-          size={18}
-          color={song.is_favorite ? colors.accent : colors.textDim}
-        />
-      </Pressable>
+      <Feather name="play" size={16} color={active ? colors.accent : colors.textDim} />
     </Pressable>
   );
 }
@@ -135,10 +97,6 @@ const styles = StyleSheet.create({
   },
   info: { flex: 1, minWidth: 0, gap: 3 },
   title: { color: colors.text, fontSize: 15, fontWeight: "600" },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   tag: { color: colors.textMuted, fontSize: 12 },
-  statsRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 1 },
-  statItem: { flexDirection: "row", alignItems: "center", gap: 3 },
   stat: { color: colors.textDim, fontSize: 11 },
-  favBtn: { padding: 6 },
 });

@@ -1,17 +1,14 @@
-import { Feather } from "@expo/vector-icons";
+import { AntDesign, Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
   Image,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,34 +18,21 @@ import { colors } from "@/src/theme";
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { login } = useAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
+  const { signInWithGoogle, signingIn } = useAuth();
   const [error, setError] = useState<string | null>(null);
 
-  const onSubmit = async () => {
+  const onSignIn = async () => {
     setError(null);
-    if (!email.trim() || !password) {
-      setError("Enter your email and password");
-      return;
-    }
-    setLoading(true);
     try {
-      await login(email.trim().toLowerCase(), password);
+      await signInWithGoogle();
       router.replace("/(tabs)");
     } catch (e: any) {
-      setError(e?.message ?? "Login failed");
-    } finally {
-      setLoading(false);
+      setError(e?.message ?? "Sign in failed");
     }
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+    <View style={styles.flex}>
       <View style={styles.heroWrap}>
         <Image
           source={require("../../assets/images/auth-hero.png")}
@@ -63,55 +47,43 @@ export default function LoginScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 28 },
+        ]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.brand}>
           <View style={styles.brandDot} />
-          <Text style={styles.brandText}>SUNO LIBRARY</Text>
+          <Text style={styles.brandText}>SUNO · CYNLABS</Text>
         </View>
 
         <View style={styles.spacer} />
 
         <Text style={styles.title}>Your library.{"\n"}Your sound.</Text>
         <Text style={styles.subtitle}>
-          Sign in to import your Suno catalog and play it in a real audio player.
+          Sign in with the Google account on your CynLabs profile to import your published Suno catalog.
         </Text>
 
         <View style={styles.card}>
-          <Text style={styles.label}>Email</Text>
-          <View style={styles.inputWrap}>
-            <Feather name="mail" size={16} color={colors.textMuted} />
-            <TextInput
-              testID="login-email"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="you@example.com"
-              placeholderTextColor={colors.textDim}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.input}
-            />
-          </View>
-
-          <Text style={styles.label}>Password</Text>
-          <View style={styles.inputWrap}>
-            <Feather name="lock" size={16} color={colors.textMuted} />
-            <TextInput
-              testID="login-password"
-              value={password}
-              onChangeText={setPassword}
-              placeholder="••••••••"
-              placeholderTextColor={colors.textDim}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.input}
-              onSubmitEditing={onSubmit}
-              returnKeyType="go"
-            />
-          </View>
+          <Pressable
+            testID="google-signin"
+            onPress={onSignIn}
+            disabled={signingIn}
+            style={({ pressed }) => [
+              styles.googleBtn,
+              { opacity: pressed || signingIn ? 0.85 : 1 },
+            ]}
+          >
+            {signingIn ? (
+              <ActivityIndicator color="#0A0A0A" />
+            ) : (
+              <>
+                <AntDesign name="google" size={18} color="#0A0A0A" />
+                <Text style={styles.googleBtnText}>Sign in with Google</Text>
+              </>
+            )}
+          </Pressable>
 
           {error ? (
             <View style={styles.errorBox}>
@@ -120,27 +92,12 @@ export default function LoginScreen() {
             </View>
           ) : null}
 
-          <Pressable
-            testID="login-submit"
-            onPress={onSubmit}
-            disabled={loading}
-            style={({ pressed }) => [styles.cta, { opacity: pressed || loading ? 0.85 : 1 }]}
-          >
-            {loading ? (
-              <ActivityIndicator color="#0A0A0A" />
-            ) : (
-              <Text style={styles.ctaText}>Sign in</Text>
-            )}
-          </Pressable>
-
-          <Pressable testID="go-to-signup" onPress={() => router.replace("/(auth)/signup")} style={styles.switchBtn}>
-            <Text style={styles.switchText}>
-              New here? <Text style={styles.switchAccent}>Create an account</Text>
-            </Text>
-          </Pressable>
+          <Text style={styles.legal}>
+            We open Google's sign-in inside your browser. Your password never touches this app.
+          </Text>
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -151,31 +108,32 @@ const styles = StyleSheet.create({
   brand: { flexDirection: "row", alignItems: "center", gap: 8 },
   brandDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent, shadowColor: colors.accent, shadowOpacity: 0.8, shadowRadius: 8 },
   brandText: { color: colors.text, fontSize: 12, letterSpacing: 2.5, fontWeight: "700" },
-  spacer: { height: 200 },
+  spacer: { height: 220 },
   title: { color: colors.text, fontSize: 38, fontWeight: "800", lineHeight: 44, letterSpacing: -1 },
   subtitle: { color: colors.textMuted, fontSize: 15, marginTop: 12, lineHeight: 22 },
   card: {
-    marginTop: 28,
+    marginTop: 32,
     padding: 18,
     borderRadius: 20,
     backgroundColor: "rgba(20,20,20,0.85)",
     borderWidth: 1,
     borderColor: colors.border,
   },
-  label: { color: colors.textMuted, fontSize: 11, letterSpacing: 1.2, fontWeight: "700", marginBottom: 8, marginTop: 6 },
-  inputWrap: {
+  googleBtn: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 10,
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    height: 50,
-    marginBottom: 6,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOpacity: 0.4,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
   },
-  input: { flex: 1, color: colors.text, fontSize: 15 },
+  googleBtnText: { color: "#0A0A0A", fontWeight: "800", fontSize: 16, letterSpacing: 0.2 },
   errorBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -185,24 +143,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 10,
     padding: 10,
-    marginTop: 8,
+    marginTop: 12,
   },
   errorText: { color: colors.danger, fontSize: 13, flex: 1 },
-  cta: {
-    marginTop: 18,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: colors.accent,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: colors.accent,
-    shadowOpacity: 0.5,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
+  legal: {
+    color: colors.textDim,
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 14,
+    lineHeight: 17,
   },
-  ctaText: { color: "#0A0A0A", fontWeight: "800", fontSize: 16, letterSpacing: 0.3 },
-  switchBtn: { alignItems: "center", marginTop: 14, paddingVertical: 6 },
-  switchText: { color: colors.textMuted, fontSize: 13 },
-  switchAccent: { color: colors.accent, fontWeight: "700" },
 });

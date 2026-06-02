@@ -22,8 +22,8 @@ export function MiniPlayer() {
 
       <View style={styles.row}>
         <View style={styles.artwork}>
-          {current.image_url ? (
-            <Image source={{ uri: current.image_url }} style={styles.artworkImg} />
+          {current.imageUrl ? (
+            <Image source={{ uri: current.imageUrl }} style={styles.artworkImg} />
           ) : (
             <Feather name="music" size={18} color={colors.textMuted} />
           )}
@@ -32,7 +32,7 @@ export function MiniPlayer() {
         <View style={styles.info}>
           <Text style={styles.title} numberOfLines={1}>{current.title}</Text>
           <Text style={styles.sub} numberOfLines={1}>
-            {current.display_name || current.handle || "Suno"}
+            {current.artist || "Suno"}
           </Text>
         </View>
 

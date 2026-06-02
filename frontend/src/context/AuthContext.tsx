@@ -1,54 +1,81 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { api, clearToken, setToken, type User } from "@/src/api/client";
+import * as WebBrowser from "expo-web-browser";
+import { api, clearToken, setToken, type CynUser } from "@/src/api/client";
 import { storage } from "@/src/utils/storage";
 
+const CYNLABS_LOGIN_URL =
+  "https://cynlabs.xyz/api/login?mobile=1&returnUrl=suno-mobile://auth-callback";
+const RETURN_URL = "suno-mobile://auth-callback";
+
 type AuthState = {
-  user: User | null;
+  user: CynUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  signingIn: boolean;
+  signInWithGoogle: () => Promise<void>;
+  refresh: () => Promise<void>;
   logout: () => Promise<void>;
 };
 
 const Ctx = createContext<AuthState | null>(null);
 
+// On native, complete pending sessions on app start (recommended by expo-web-browser).
+WebBrowser.maybeCompleteAuthSession();
+
+async function fetchMe(): Promise<CynUser | null> {
+  try {
+    const res = await api<{ user: CynUser | null }>("/auth/user");
+    return res?.user ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<CynUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const token = await storage.secureGet<string>("auth_token", "");
+      const token = await storage.secureGet<string>("cynlabs_token", "");
       if (token) {
-        try {
-          const u = await api<User>("/auth/me");
-          setUser(u);
-        } catch {
-          await clearToken();
-        }
+        const u = await fetchMe();
+        if (u) setUser(u);
+        else await clearToken();
       }
       setLoading(false);
     })();
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const out = await api<{ token: string; user: User }>("/auth/login", {
-      method: "POST",
-      body: { email, password },
-      auth: false,
-    });
-    await setToken(out.token);
-    setUser(out.user);
+  const signInWithGoogle = useCallback(async () => {
+    setSigningIn(true);
+    try {
+      const result = await WebBrowser.openAuthSessionAsync(CYNLABS_LOGIN_URL, RETURN_URL);
+      if (result.type !== "success" || !result.url) return;
+
+      // Extract token from suno-mobile://auth-callback?token=XYZ
+      const url = result.url;
+      const tokenMatch = url.match(/[?&]token=([^&#]+)/);
+      if (!tokenMatch) {
+        throw { message: "No token in callback URL", status: 0 };
+      }
+      const token = decodeURIComponent(tokenMatch[1]);
+      await setToken(token);
+
+      const u = await fetchMe();
+      if (!u) {
+        await clearToken();
+        throw { message: "Session token rejected by server", status: 401 };
+      }
+      setUser(u);
+    } finally {
+      setSigningIn(false);
+    }
   }, []);
 
-  const register = useCallback(async (email: string, password: string) => {
-    const out = await api<{ token: string; user: User }>("/auth/register", {
-      method: "POST",
-      body: { email, password },
-      auth: false,
-    });
-    await setToken(out.token);
-    setUser(out.user);
+  const refresh = useCallback(async () => {
+    const u = await fetchMe();
+    setUser(u);
   }, []);
 
   const logout = useCallback(async () => {
@@ -57,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <Ctx.Provider value={{ user, loading, login, register, logout }}>
+    <Ctx.Provider value={{ user, loading, signingIn, signInWithGoogle, refresh, logout }}>
       {children}
     </Ctx.Provider>
   );

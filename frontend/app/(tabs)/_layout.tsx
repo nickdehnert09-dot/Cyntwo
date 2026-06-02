@@ -31,13 +31,6 @@ export default function TabsLayout() {
           }}
         />
         <Tabs.Screen
-          name="favorites"
-          options={{
-            title: "Favorites",
-            tabBarIcon: ({ color, size }) => <Feather name="heart" size={size - 2} color={color} />,
-          }}
-        />
-        <Tabs.Screen
           name="account"
           options={{
             title: "Account",
