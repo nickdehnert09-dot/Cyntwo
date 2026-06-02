@@ -10,20 +10,26 @@
  */
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Linking,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { api, type ImportResult } from "@/src/api/client";
+import { storage } from "@/src/utils/storage";
 import { colors } from "@/src/theme";
+
+const HANDLE_KEY = "suno_handle";
 
 // JS injected into suno.com before content loads. Hooks fetch + XHR, filters to
 // is_public, and posts a normalized payload back to the React Native bridge.
@@ -171,6 +177,39 @@ export default function ConnectSunoScreen() {
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const totals = useRef<ImportResult>({ imported: 0, skipped: 0, total: 0 });
 
+  // Suno handle — start the WebView at the user's PUBLIC profile so the source
+  // data is already pre-filtered to published songs only.
+  const [handle, setHandle] = useState<string | null>(null);
+  const [handleInput, setHandleInput] = useState("");
+  const [handleLoaded, setHandleLoaded] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const stored = await storage.localGet<string>(HANDLE_KEY, "");
+      if (stored) {
+        setHandle(stored);
+        setHandleInput(stored);
+      }
+      setHandleLoaded(true);
+    })();
+  }, []);
+
+  const saveHandle = useCallback(async (raw: string) => {
+    const cleaned = raw.trim().replace(/^@+/, "").replace(/\s+/g, "");
+    if (!cleaned) return;
+    await storage.localSet(HANDLE_KEY, cleaned);
+    setHandle(cleaned);
+  }, []);
+
+  const changeHandle = useCallback(() => {
+    setHandle(null);
+    setStatus("loading");
+    setCapturedCount(0);
+    seenIds.current.clear();
+    buffer.current = [];
+    totals.current = { imported: 0, skipped: 0, total: 0 };
+  }, []);
+
   const flush = useCallback(async () => {
     if (!buffer.current.length) return;
     const batch = buffer.current.slice();
@@ -245,20 +284,31 @@ export default function ConnectSunoScreen() {
         <View style={styles.topInfo}>
           <Text style={styles.topTitle}>Connect Suno</Text>
           <Text style={styles.topSub} numberOfLines={1}>
-            {status === "loading"
-              ? "Loading…"
-              : capturedCount > 0
-                ? `${capturedCount} ${capturedCount === 1 ? "track" : "tracks"} captured`
-                : "Sign in to your Suno account"}
+            {!handle
+              ? "Enter your Suno handle"
+              : status === "loading"
+                ? `Loading @${handle}…`
+                : capturedCount > 0
+                  ? `${capturedCount} ${capturedCount === 1 ? "track" : "tracks"} captured`
+                  : `Browsing @${handle}'s public profile`}
           </Text>
         </View>
-        {capturedCount > 0 && status !== "done" ? (
+        {handle && capturedCount > 0 && status !== "done" ? (
           <Pressable
             testID="connect-finish"
             onPress={finishImport}
             style={({ pressed }) => [styles.finishBtn, { opacity: pressed ? 0.85 : 1 }]}
           >
             <Text style={styles.finishText}>Done</Text>
+          </Pressable>
+        ) : handle ? (
+          <Pressable
+            testID="change-handle"
+            onPress={changeHandle}
+            hitSlop={8}
+            style={styles.iconBtn}
+          >
+            <Feather name="edit-2" size={18} color={colors.textMuted} />
           </Pressable>
         ) : (
           <View style={styles.iconBtn} />
@@ -283,13 +333,60 @@ export default function ConnectSunoScreen() {
             <Text style={styles.doneCtaText}>Open library</Text>
           </Pressable>
         </View>
+      ) : !handleLoaded ? (
+        <View style={styles.handleLoading}>
+          <ActivityIndicator color={colors.accent} />
+        </View>
+      ) : !handle ? (
+        <KeyboardAvoidingView
+          style={styles.handleWrap}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.handleCard}>
+            <Feather name="at-sign" size={28} color={colors.accent} />
+            <Text style={styles.handleTitle}>What's your Suno handle?</Text>
+            <Text style={styles.handleSub}>
+              We'll load your public profile at{"\n"}
+              <Text style={styles.handleUrl}>suno.com/@{handleInput || "your-handle"}</Text>
+              {"\n\n"}Only your published tracks live there — drafts and discarded versions are filtered out by Suno itself.
+            </Text>
+            <View style={styles.handleInputWrap}>
+              <Text style={styles.atPrefix}>@</Text>
+              <TextInput
+                testID="handle-input"
+                value={handleInput}
+                onChangeText={setHandleInput}
+                placeholder="your-handle"
+                placeholderTextColor={colors.textDim}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus
+                style={styles.handleInput}
+                onSubmitEditing={() => saveHandle(handleInput)}
+                returnKeyType="go"
+              />
+            </View>
+            <Pressable
+              testID="handle-continue"
+              disabled={!handleInput.trim()}
+              onPress={() => saveHandle(handleInput)}
+              style={({ pressed }) => [
+                styles.handleCta,
+                { opacity: !handleInput.trim() ? 0.4 : pressed ? 0.85 : 1 },
+              ]}
+            >
+              <Text style={styles.handleCtaText}>Continue</Text>
+              <Feather name="arrow-right" size={16} color="#0A0A0A" />
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
       ) : (
         <>
           <View style={styles.banner}>
-            <Feather name="info" size={14} color={colors.accent} />
+            <Feather name="shield" size={14} color={colors.accent} />
             <Text style={styles.bannerText}>
-              Sign in to Suno below, then open your profile or songs page.{"\n"}
-              We only capture tracks you've published publicly.
+              Loading <Text style={{ fontWeight: "700" }}>@{handle}</Text>'s public profile.{"\n"}
+              Only published songs live here — scroll the page so they all load, then tap Done.
             </Text>
           </View>
 
@@ -297,7 +394,7 @@ export default function ConnectSunoScreen() {
             <WebView
               ref={webRef}
               testID="suno-webview"
-              source={{ uri: "https://suno.com/me" }}
+              source={{ uri: `https://suno.com/@${handle}` }}
               injectedJavaScriptBeforeContentLoaded={SNIFFER}
               onMessage={onMessage}
               onError={(e) => setError(e.nativeEvent.description ?? "Failed to load Suno")}
@@ -322,7 +419,7 @@ export default function ConnectSunoScreen() {
             <View style={styles.errorBar}>
               <Feather name="alert-circle" size={14} color={colors.danger} />
               <Text style={styles.errorText}>{error}</Text>
-              <Pressable onPress={() => Linking.openURL("https://suno.com")} hitSlop={6}>
+              <Pressable onPress={() => Linking.openURL(`https://suno.com/@${handle}`)} hitSlop={6}>
                 <Text style={styles.errorLink}>Open in browser</Text>
               </Pressable>
             </View>
@@ -403,4 +500,46 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   doneCtaText: { color: "#0A0A0A", fontWeight: "800", fontSize: 15 },
+  handleLoading: { flex: 1, alignItems: "center", justifyContent: "center" },
+  handleWrap: { flex: 1, padding: 24, justifyContent: "center" },
+  handleCard: {
+    padding: 24,
+    borderRadius: 20,
+    backgroundColor: "rgba(20,20,20,0.85)",
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 14,
+  },
+  handleTitle: { color: colors.text, fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
+  handleSub: { color: colors.textMuted, fontSize: 14, lineHeight: 21 },
+  handleUrl: { color: colors.accent, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", fontSize: 13 },
+  handleInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 14,
+    height: 52,
+    marginTop: 4,
+  },
+  atPrefix: { color: colors.textMuted, fontSize: 18, fontWeight: "600", marginRight: 4 },
+  handleInput: { flex: 1, color: colors.text, fontSize: 16 },
+  handleCta: {
+    marginTop: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: colors.accent,
+    shadowColor: colors.accent,
+    shadowOpacity: 0.5,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  handleCtaText: { color: "#0A0A0A", fontWeight: "800", fontSize: 15 },
 });
