@@ -1,11 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import * as WebBrowser from "expo-web-browser";
-import { api, clearToken, setToken, type CynUser } from "@/src/api/client";
+import { api, clearToken, CYNLABS_BASE, setToken, type CynUser } from "@/src/api/client";
 import { storage } from "@/src/utils/storage";
 
-const CYNLABS_LOGIN_URL =
-  "https://cynlabs.xyz/api/login?mobile=1&returnUrl=suno-mobile://auth-callback";
 const RETURN_URL = "suno-mobile://auth-callback";
+const CYNLABS_LOGIN_URL = `${CYNLABS_BASE}/login?mobile=1&returnUrl=${encodeURIComponent(RETURN_URL)}`;
 
 type AuthState = {
   user: CynUser | null;

@@ -1,12 +1,17 @@
 /**
  * CynLabs API client.
  *
- * Backend: https://cynlabs.xyz/api
+ * Backend: https://cynlabs-production.up.railway.app/api  (Railway, single domain serving both web + API)
  * Auth: Bearer token (returned by mobile OAuth flow as the deep-link `token` query param).
+ *
+ * The base URL is baked into the bundle at build time from EXPO_PUBLIC_CYNLABS_API_URL
+ * in the active EAS profile's env. Falls back to the Railway prod URL if unset.
  */
 import { storage } from "@/src/utils/storage";
 
-export const CYNLABS_BASE = "https://cynlabs.xyz/api";
+export const CYNLABS_BASE =
+  process.env.EXPO_PUBLIC_CYNLABS_API_URL ||
+  "https://cynlabs-production.up.railway.app/api";
 const TOKEN_KEY = "cynlabs_token";
 
 export type ApiError = { message: string; status: number };

@@ -6,7 +6,7 @@
  *  - Inject JS that hooks fetch/XHR BEFORE content loads
  *  - Capture clip arrays from Suno's own authenticated API responses
  *  - Filter strict: only is_public=true clips (no drafts, no losing versions)
- *  - Remap to CynLabs schema and POST to https://cynlabs.xyz/api/songs/import
+ *  - Remap to CynLabs schema and POST to <CYNLABS_BASE>/songs/import
  */
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
