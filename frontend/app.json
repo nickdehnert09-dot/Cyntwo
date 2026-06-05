@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "suno-mobile",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
