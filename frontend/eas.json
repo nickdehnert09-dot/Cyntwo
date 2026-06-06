@@ -8,7 +8,8 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_CYNLABS_API_URL": "https://cynlabs-production.up.railway.app/api"
+        "EXPO_PUBLIC_CYNLABS_API_URL": "https://www.cynlabs.app/api",
+        "EXPO_PUBLIC_CYNLABS_WEB_URL": "https://www.cynlabs.app"
       }
     },
     "preview": {
@@ -17,13 +18,15 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_CYNLABS_API_URL": "https://cynlabs-production.up.railway.app/api"
+        "EXPO_PUBLIC_CYNLABS_API_URL": "https://www.cynlabs.app/api",
+        "EXPO_PUBLIC_CYNLABS_WEB_URL": "https://www.cynlabs.app"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_CYNLABS_API_URL": "https://cynlabs-production.up.railway.app/api"
+        "EXPO_PUBLIC_CYNLABS_API_URL": "https://www.cynlabs.app/api",
+        "EXPO_PUBLIC_CYNLABS_WEB_URL": "https://www.cynlabs.app"
       }
     }
   },
