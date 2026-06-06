@@ -185,7 +185,7 @@ export default function ConnectSunoScreen() {
 
   useEffect(() => {
     (async () => {
-      const stored = await storage.localGet<string>(HANDLE_KEY, "");
+      const stored = await storage.getItem<string>(HANDLE_KEY, "");
       if (stored) {
         setHandle(stored);
         setHandleInput(stored);
@@ -197,7 +197,7 @@ export default function ConnectSunoScreen() {
   const saveHandle = useCallback(async (raw: string) => {
     const cleaned = raw.trim().replace(/^@+/, "").replace(/\s+/g, "");
     if (!cleaned) return;
-    await storage.localSet(HANDLE_KEY, cleaned);
+    await storage.setItem(HANDLE_KEY, cleaned);
     setHandle(cleaned);
   }, []);
 
@@ -212,7 +212,11 @@ export default function ConnectSunoScreen() {
 
   const flush = useCallback(async () => {
     if (!buffer.current.length) return;
-    const batch = buffer.current.slice();
+    // Strip null values: the backend schema uses .optional() (string | undefined),
+    // not .nullable(), so null fields must be omitted rather than sent as null.
+    const batch = buffer.current.slice().map((song) =>
+      Object.fromEntries(Object.entries(song).filter(([, v]) => v !== null)),
+    );
     buffer.current = [];
     setStatus("capturing");
     try {
