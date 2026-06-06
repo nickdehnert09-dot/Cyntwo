@@ -13,7 +13,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api, type CynSong } from "@/src/api/client";
+import { api, mapSong, type CynSong } from "@/src/api/client";
 import { usePlayer } from "@/src/context/PlayerContext";
 import { SongRow } from "@/src/components/SongRow";
 import { colors } from "@/src/theme";
@@ -33,8 +33,8 @@ export default function LibraryScreen() {
     else setLoading(true);
     setError(null);
     try {
-      const data = await api<CynSong[] | { songs: CynSong[] }>("/songs");
-      const list = Array.isArray(data) ? data : (data?.songs ?? []);
+      const data = await api<any[]>("/library");
+      const list = Array.isArray(data) ? data.map(mapSong) : [];
       setSongs(list);
     } catch (e: any) {
       setError(e?.message ?? "Could not load library");
@@ -65,7 +65,7 @@ export default function LibraryScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.headerLabel}>YOUR LIBRARY</Text>
-        <Text style={styles.title}>Suno catalog</Text>
+        <Text style={styles.title}>CynLabs Library</Text>
         <Text style={styles.sub}>{songs.length} {songs.length === 1 ? "track" : "tracks"}</Text>
       </View>
 
@@ -137,7 +137,7 @@ export default function LibraryScreen() {
               />
               <Text style={styles.emptyTitle}>Your library is empty</Text>
               <Text style={styles.emptyText}>
-                Sign in to Suno inside the app and we'll import every published track on your profile.
+                Connect your account to import your published tracks into CynLabs.
               </Text>
               <Pressable
                 testID="connect-suno-cta"
@@ -145,7 +145,7 @@ export default function LibraryScreen() {
                 style={({ pressed }) => [styles.cta, { opacity: pressed ? 0.85 : 1 }]}
               >
                 <Feather name="zap" size={16} color="#0A0A0A" />
-                <Text style={styles.ctaText}>Connect Suno</Text>
+                <Text style={styles.ctaText}>Import Tracks</Text>
               </Pressable>
             </View>
           )
@@ -158,7 +158,7 @@ export default function LibraryScreen() {
               style={({ pressed }) => [styles.reimportBtn, { opacity: pressed ? 0.85 : 1 }]}
             >
               <Feather name="refresh-cw" size={14} color={colors.accent} />
-              <Text style={styles.reimportText}>Sync from Suno</Text>
+              <Text style={styles.reimportText}>Sync Library</Text>
             </Pressable>
           ) : null
         }

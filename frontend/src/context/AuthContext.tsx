@@ -1,10 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import * as WebBrowser from "expo-web-browser";
-import { api, clearToken, CYNLABS_BASE, setToken, type CynUser } from "@/src/api/client";
+import { api, clearToken, CYNLABS_WEB, setToken, type CynUser } from "@/src/api/client";
 import { storage } from "@/src/utils/storage";
 
 const RETURN_URL = "suno-mobile://auth-callback";
-const CYNLABS_LOGIN_URL = `${CYNLABS_BASE}/login?mobile=1&returnUrl=${encodeURIComponent(RETURN_URL)}`;
+const CYNLABS_LOGIN_URL = `${CYNLABS_WEB}/login?mobile=1&returnUrl=${encodeURIComponent(RETURN_URL)}`;
 
 type AuthState = {
   user: CynUser | null;
@@ -22,8 +22,8 @@ WebBrowser.maybeCompleteAuthSession();
 
 async function fetchMe(): Promise<CynUser | null> {
   try {
-    const res = await api<{ user: CynUser | null }>("/auth/user");
-    return res?.user ?? null;
+    const res = await api<CynUser>("/auth/me");
+    return res ?? null;
   } catch {
     return null;
   }

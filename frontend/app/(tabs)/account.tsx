@@ -61,7 +61,7 @@ export default function AccountScreen() {
         >
           <Feather name="refresh-cw" size={18} color={colors.accent} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.actionTitle}>Sync from Suno</Text>
+            <Text style={styles.actionTitle}>Sync Library</Text>
             <Text style={styles.actionSub}>Pull your latest published tracks into CynLabs</Text>
           </View>
           <Feather name="chevron-right" size={18} color={colors.textDim} />
@@ -78,7 +78,7 @@ export default function AccountScreen() {
           </View>
         </Pressable>
 
-        <Text style={styles.footer}>Suno · CynLabs · v1.0</Text>
+        <Text style={styles.footer}>CynLabs · v1.0</Text>
       </ScrollView>
     </View>
   );

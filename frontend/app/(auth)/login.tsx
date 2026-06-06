@@ -55,14 +55,14 @@ export default function LoginScreen() {
       >
         <View style={styles.brand}>
           <View style={styles.brandDot} />
-          <Text style={styles.brandText}>SUNO · CYNLABS</Text>
+          <Text style={styles.brandText}>CYNLABS</Text>
         </View>
 
         <View style={styles.spacer} />
 
         <Text style={styles.title}>Your library.{"\n"}Your sound.</Text>
         <Text style={styles.subtitle}>
-          Sign in with the Google account on your CynLabs profile to import your published Suno catalog.
+          Sign in with the Google account on your CynLabs profile to import your published catalog.
         </Text>
 
         <View style={styles.card}>

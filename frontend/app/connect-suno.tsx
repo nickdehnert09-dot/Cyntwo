@@ -1,23 +1,11 @@
-/**
- * Connect Suno: WebView importer wired to CynLabs backend.
- *
- * Mechanism (unchanged):
- *  - Open suno.com/me in a WebView
- *  - Inject JS that hooks fetch/XHR BEFORE content loads
- *  - Capture clip arrays from Suno's own authenticated API responses
- *  - Filter strict: only is_public=true clips (no drafts, no losing versions)
- *  - Remap to CynLabs schema and POST to <CYNLABS_BASE>/songs/import
- */
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Linking,
-  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -31,12 +19,13 @@ import { colors } from "@/src/theme";
 
 const HANDLE_KEY = "suno_handle";
 
-// JS injected into suno.com before content loads. Hooks fetch + XHR, filters to
-// is_public, and posts a normalized payload back to the React Native bridge.
+// Injected before content loads. Hooks fetch + XHR, filters to is_public,
+// and posts a normalized payload back to the React Native bridge.
+// Output shape matches the backend SongIn schema (snake_case).
 const SNIFFER = `
 (function() {
-  if (window.__sunoSniffer) return;
-  window.__sunoSniffer = true;
+  if (window.__cynSniffer) return;
+  window.__cynSniffer = true;
 
   function post(payload) {
     try {
@@ -74,27 +63,24 @@ const SNIFFER = `
     return [];
   }
 
-  // Remap Suno clip -> CynLabs songs/import schema (camelCase).
+  // Output matches backend SongIn: snake_case fields.
   function normalize(c) {
     var meta = c.metadata || {};
     var tags = meta.tags || c.tags || '';
-    var firstTag = (tags.split(/[,|]+/)[0] || '').trim();
     return {
-      sunoId: c.id || c.clip_id,
+      id: c.id || c.clip_id,
       title: c.title || 'Untitled',
-      artist: c.display_name || (c.user && c.user.display_name) || c.handle || (c.user && c.user.handle) || null,
-      genre: firstTag || null,
-      tags: tags || null,
-      lyrics: meta.prompt || c.prompt || null,
-      audioUrl: c.audio_url || null,
-      imageUrl: c.image_large_url || c.image_url || null,
+      audio_url: c.audio_url || null,
+      image_url: c.image_large_url || c.image_url || null,
+      tags: tags || '',
+      prompt: meta.prompt || c.prompt || '',
       duration: (typeof meta.duration === 'number' ? meta.duration : (typeof c.duration === 'number' ? c.duration : null)),
-      bpm: (typeof meta.bpm === 'number' ? Math.round(meta.bpm) : null),
-      key: meta.key || null,
-      style: meta.style || meta.gpt_description_prompt || null,
-      model: c.model_name || meta.model_name || null,
-      isPublic: true,
-      status: 'published',
+      play_count: c.play_count || 0,
+      like_count: c.like_count || 0,
+      created_at: c.created_at || null,
+      handle: c.handle || (c.user && c.user.handle) || null,
+      display_name: c.display_name || (c.user && c.user.display_name) || null,
+      is_public: true,
     };
   }
 
@@ -103,7 +89,7 @@ const SNIFFER = `
     if (!clips.length) return;
     var published = clips.filter(isPublished);
     if (!published.length) return;
-    var songs = published.map(normalize).filter(function(s) { return s.sunoId && s.audioUrl && s.title; });
+    var songs = published.map(normalize).filter(function(s) { return s.id && s.audio_url && s.title; });
     if (!songs.length) return;
     post({ type: 'songs', count: songs.length, url: url, songs: songs });
   }
@@ -127,7 +113,7 @@ const SNIFFER = `
   var origOpen = XMLHttpRequest.prototype.open;
   var origSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function(method, url) {
-    this.__sunoUrl = url;
+    this.__cynUrl = url;
     return origOpen.apply(this, arguments);
   };
   XMLHttpRequest.prototype.send = function() {
@@ -140,7 +126,7 @@ const SNIFFER = `
           if (ct.indexOf('application/json') !== -1 && self.responseText) {
             try {
               var data = JSON.parse(self.responseText);
-              handlePayload(self.__sunoUrl || '', data);
+              handlePayload(self.__cynUrl || '', data);
             } catch (e) {}
           }
         } catch (e) {}
@@ -162,8 +148,9 @@ true;
 `;
 
 type Status = "loading" | "ready" | "capturing" | "done" | "error";
+type PageTab = "profile" | "songs";
 
-export default function ConnectSunoScreen() {
+export default function CynLabsImportScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const webRef = useRef<WebView>(null);
@@ -175,13 +162,12 @@ export default function ConnectSunoScreen() {
   const seenIds = useRef<Set<string>>(new Set());
   const buffer = useRef<any[]>([]);
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const totals = useRef<ImportResult>({ imported: 0, skipped: 0, total: 0 });
+  const totals = useRef<ImportResult>({ inserted: 0, updated: 0, total: 0 });
 
-  // Suno handle — start the WebView at the user's PUBLIC profile so the source
-  // data is already pre-filtered to published songs only.
   const [handle, setHandle] = useState<string | null>(null);
   const [handleInput, setHandleInput] = useState("");
   const [handleLoaded, setHandleLoaded] = useState(false);
+  const [pageTab, setPageTab] = useState<PageTab>("profile");
 
   useEffect(() => {
     (async () => {
@@ -194,41 +180,49 @@ export default function ConnectSunoScreen() {
     })();
   }, []);
 
+  const profileUrl = handle ? `https://suno.com/@${handle}` : "";
+  const songsUrl = handle ? `https://suno.com/@${handle}/songs` : "";
+  const webUri = pageTab === "songs" ? songsUrl : profileUrl;
+
   const saveHandle = useCallback(async (raw: string) => {
     const cleaned = raw.trim().replace(/^@+/, "").replace(/\s+/g, "");
     if (!cleaned) return;
     await storage.setItem(HANDLE_KEY, cleaned);
     setHandle(cleaned);
+    setPageTab("profile");
   }, []);
 
   const changeHandle = useCallback(() => {
     setHandle(null);
     setStatus("loading");
     setCapturedCount(0);
+    setPageTab("profile");
     seenIds.current.clear();
     buffer.current = [];
-    totals.current = { imported: 0, skipped: 0, total: 0 };
+    totals.current = { inserted: 0, updated: 0, total: 0 };
+  }, []);
+
+  const switchTab = useCallback((tab: PageTab) => {
+    setPageTab(tab);
+    setStatus("loading");
   }, []);
 
   const flush = useCallback(async () => {
     if (!buffer.current.length) return;
-    // Strip null values: the backend schema uses .optional() (string | undefined),
-    // not .nullable(), so null fields must be omitted rather than sent as null.
     const batch = buffer.current.slice().map((song) =>
       Object.fromEntries(Object.entries(song).filter(([, v]) => v !== null)),
     );
     buffer.current = [];
     setStatus("capturing");
     try {
-      const res = await api<ImportResult>("/songs/import", {
+      const res = await api<ImportResult>("/library/import", {
         method: "POST",
         body: { songs: batch },
       });
       totals.current = {
-        imported: totals.current.imported + (res.imported || 0),
-        skipped: totals.current.skipped + (res.skipped || 0),
+        inserted: (totals.current.inserted || 0) + (res.inserted || 0),
+        updated: (totals.current.updated || 0) + (res.updated || 0),
         total: res.total ?? totals.current.total,
-        errors: [...(totals.current.errors || []), ...(res.errors || [])],
       };
       setImportResult({ ...totals.current });
     } catch (e: any) {
@@ -249,8 +243,8 @@ export default function ConnectSunoScreen() {
       } else if (msg.type === "songs" && Array.isArray(msg.songs)) {
         const fresh: any[] = [];
         for (const s of msg.songs) {
-          if (!s || !s.sunoId || seenIds.current.has(s.sunoId)) continue;
-          seenIds.current.add(s.sunoId);
+          if (!s || !s.id || seenIds.current.has(s.id)) continue;
+          seenIds.current.add(s.id);
           fresh.push(s);
         }
         if (fresh.length) {
@@ -270,7 +264,7 @@ export default function ConnectSunoScreen() {
     if (capturedCount === 0) {
       Alert.alert(
         "No tracks captured yet",
-        "Open your profile or songs page on Suno so your published tracks load — we'll grab them automatically.",
+        "Browse your profile or songs page so your published tracks load — we'll capture them automatically.",
       );
       return;
     }
@@ -286,15 +280,15 @@ export default function ConnectSunoScreen() {
           <Feather name="x" size={22} color={colors.text} />
         </Pressable>
         <View style={styles.topInfo}>
-          <Text style={styles.topTitle}>Connect Suno</Text>
+          <Text style={styles.topTitle}>CynLabs Import</Text>
           <Text style={styles.topSub} numberOfLines={1}>
             {!handle
-              ? "Enter your Suno handle"
+              ? "Enter your username"
               : status === "loading"
                 ? `Loading @${handle}…`
                 : capturedCount > 0
                   ? `${capturedCount} ${capturedCount === 1 ? "track" : "tracks"} captured`
-                  : `Browsing @${handle}'s public profile`}
+                  : `Browsing @${handle}`}
           </Text>
         </View>
         {handle && capturedCount > 0 && status !== "done" ? (
@@ -326,13 +320,8 @@ export default function ConnectSunoScreen() {
           </View>
           <Text style={styles.doneTitle}>Imported to CynLabs</Text>
           <Text style={styles.doneSub}>
-            {importResult.imported} new · {importResult.skipped} skipped · {importResult.total} total
+            {importResult.inserted} new · {importResult.updated} updated · {importResult.total} total
           </Text>
-          {importResult.errors && importResult.errors.length > 0 ? (
-            <Text style={styles.doneNote}>
-              {importResult.errors.length} item{importResult.errors.length === 1 ? "" : "s"} had errors and were skipped.
-            </Text>
-          ) : null}
           <Pressable testID="back-to-library" onPress={close} style={styles.doneCta}>
             <Text style={styles.doneCtaText}>Open library</Text>
           </Pressable>
@@ -342,17 +331,17 @@ export default function ConnectSunoScreen() {
           <ActivityIndicator color={colors.accent} />
         </View>
       ) : !handle ? (
-        <KeyboardAvoidingView
-          style={styles.handleWrap}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        <ScrollView
+          contentContainerStyle={styles.handleWrap}
+          keyboardShouldPersistTaps="handled"
+          bounces={false}
         >
           <View style={styles.handleCard}>
             <Feather name="at-sign" size={28} color={colors.accent} />
-            <Text style={styles.handleTitle}>What's your Suno handle?</Text>
+            <Text style={styles.handleTitle}>What's your username?</Text>
             <Text style={styles.handleSub}>
-              We'll load your public profile at{"\n"}
-              <Text style={styles.handleUrl}>suno.com/@{handleInput || "your-handle"}</Text>
-              {"\n\n"}Only your published tracks live there — drafts and discarded versions are filtered out by Suno itself.
+              We'll load your public songs.{"\n\n"}
+              Only published tracks will be imported — drafts are excluded automatically.
             </Text>
             <View style={styles.handleInputWrap}>
               <Text style={styles.atPrefix}>@</Text>
@@ -360,7 +349,7 @@ export default function ConnectSunoScreen() {
                 testID="handle-input"
                 value={handleInput}
                 onChangeText={setHandleInput}
-                placeholder="your-handle"
+                placeholder="your-username"
                 placeholderTextColor={colors.textDim}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -383,25 +372,45 @@ export default function ConnectSunoScreen() {
               <Feather name="arrow-right" size={16} color="#0A0A0A" />
             </Pressable>
           </View>
-        </KeyboardAvoidingView>
+        </ScrollView>
       ) : (
         <>
-          <View style={styles.banner}>
-            <Feather name="shield" size={14} color={colors.accent} />
-            <Text style={styles.bannerText}>
-              Loading <Text style={{ fontWeight: "700" }}>@{handle}</Text>'s public profile.{"\n"}
-              Only published songs live here — scroll the page so they all load, then tap Done.
-            </Text>
+          <View style={styles.navBar}>
+            <Pressable
+              onPress={() => switchTab("profile")}
+              style={[styles.navTab, pageTab === "profile" && styles.navTabActive]}
+            >
+              <Text style={[styles.navTabText, pageTab === "profile" && styles.navTabTextActive]}>
+                Profile
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => switchTab("songs")}
+              style={[styles.navTab, pageTab === "songs" && styles.navTabActive]}
+            >
+              <Text style={[styles.navTabText, pageTab === "songs" && styles.navTabTextActive]}>
+                Songs
+              </Text>
+              <Feather
+                name="chevron-right"
+                size={12}
+                color={pageTab === "songs" ? "#0A0A0A" : colors.textMuted}
+              />
+            </Pressable>
+            <Text style={styles.navHint}>Scroll to load more, then tap Done</Text>
           </View>
 
           <View style={styles.webWrap}>
             <WebView
               ref={webRef}
               testID="suno-webview"
-              source={{ uri: `https://suno.com/@${handle}` }}
+              source={{ uri: webUri }}
               injectedJavaScriptBeforeContentLoaded={SNIFFER}
               onMessage={onMessage}
-              onError={(e) => setError(e.nativeEvent.description ?? "Failed to load Suno")}
+              onError={(e) => setError(e.nativeEvent.description ?? "Failed to load page")}
+              onNavigationStateChange={() => {
+                webRef.current?.injectJavaScript(SNIFFER);
+              }}
               sharedCookiesEnabled
               thirdPartyCookiesEnabled
               originWhitelist={["*"]}
@@ -423,9 +432,6 @@ export default function ConnectSunoScreen() {
             <View style={styles.errorBar}>
               <Feather name="alert-circle" size={14} color={colors.danger} />
               <Text style={styles.errorText}>{error}</Text>
-              <Pressable onPress={() => Linking.openURL(`https://suno.com/@${handle}`)} hitSlop={6}>
-                <Text style={styles.errorLink}>Open in browser</Text>
-              </Pressable>
             </View>
           ) : null}
         </>
@@ -457,20 +463,31 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   finishText: { color: "#0A0A0A", fontWeight: "800", fontSize: 14 },
-  banner: {
+  navBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     marginHorizontal: 12,
     marginVertical: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: colors.accentSoft,
-    borderWidth: 1,
-    borderColor: "rgba(255,140,0,0.25)",
   },
-  bannerText: { color: colors.text, fontSize: 12, flex: 1, lineHeight: 17 },
+  navTab: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  navTabActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  navTabText: { color: colors.textMuted, fontSize: 13, fontWeight: "600" },
+  navTabTextActive: { color: "#0A0A0A" },
+  navHint: { flex: 1, color: colors.textDim, fontSize: 11, textAlign: "right" },
   webWrap: { flex: 1, marginHorizontal: 8, borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: colors.border },
   loading: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
   errorBar: {
@@ -486,7 +503,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(239,68,68,0.3)",
   },
   errorText: { color: colors.danger, fontSize: 12, flex: 1 },
-  errorLink: { color: colors.accent, fontSize: 12, fontWeight: "700" },
   doneCard: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 12 },
   doneIcon: {
     width: 64, height: 64, borderRadius: 32,
@@ -496,7 +512,6 @@ const styles = StyleSheet.create({
   },
   doneTitle: { color: colors.text, fontSize: 22, fontWeight: "800", marginTop: 6 },
   doneSub: { color: colors.textMuted, fontSize: 14, textAlign: "center" },
-  doneNote: { color: colors.textDim, fontSize: 12, textAlign: "center", marginTop: 4 },
   doneCta: {
     marginTop: 18,
     paddingHorizontal: 28, height: 48, borderRadius: 24,
@@ -505,7 +520,7 @@ const styles = StyleSheet.create({
   },
   doneCtaText: { color: "#0A0A0A", fontWeight: "800", fontSize: 15 },
   handleLoading: { flex: 1, alignItems: "center", justifyContent: "center" },
-  handleWrap: { flex: 1, padding: 24, justifyContent: "center" },
+  handleWrap: { flexGrow: 1, padding: 24, justifyContent: "center" },
   handleCard: {
     padding: 24,
     borderRadius: 20,
@@ -516,7 +531,6 @@ const styles = StyleSheet.create({
   },
   handleTitle: { color: colors.text, fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
   handleSub: { color: colors.textMuted, fontSize: 14, lineHeight: 21 },
-  handleUrl: { color: colors.accent, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", fontSize: 13 },
   handleInputWrap: {
     flexDirection: "row",
     alignItems: "center",

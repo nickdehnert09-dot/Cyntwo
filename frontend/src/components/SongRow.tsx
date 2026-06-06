@@ -56,7 +56,7 @@ export function SongRow({ song, active, isPlaying, onPress }: Props) {
           {song.title}
         </Text>
         <Text style={styles.tag} numberOfLines={1}>
-          {tagPieces.length > 0 ? tagPieces.join(" · ") : (song.artist || song.genre || "Suno")}
+          {tagPieces.length > 0 ? tagPieces.join(" · ") : (song.artist || "—")}
         </Text>
         {song.duration ? (
           <Text style={styles.stat}>{fmtDuration(song.duration)}</Text>

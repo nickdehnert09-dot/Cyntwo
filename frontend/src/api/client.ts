@@ -1,17 +1,13 @@
-/**
- * CynLabs API client.
- *
- * Backend: https://cynlabs-production.up.railway.app/api  (Railway, single domain serving both web + API)
- * Auth: Bearer token (returned by mobile OAuth flow as the deep-link `token` query param).
- *
- * The base URL is baked into the bundle at build time from EXPO_PUBLIC_CYNLABS_API_URL
- * in the active EAS profile's env. Falls back to the Railway prod URL if unset.
- */
 import { storage } from "@/src/utils/storage";
 
 export const CYNLABS_BASE =
   process.env.EXPO_PUBLIC_CYNLABS_API_URL ||
-  "https://cynlabs-production.up.railway.app/api";
+  "https://www.cynlabs.app/api";
+
+export const CYNLABS_WEB =
+  process.env.EXPO_PUBLIC_CYNLABS_WEB_URL ||
+  "https://www.cynlabs.app";
+
 const TOKEN_KEY = "cynlabs_token";
 
 export type ApiError = { message: string; status: number };
@@ -57,7 +53,7 @@ export async function api<T = any>(
   return data as T;
 }
 
-// --- Domain types matching CynLabs schema ---
+// --- Domain types ---
 export type CynUser = {
   id: string;
   email: string;
@@ -67,7 +63,7 @@ export type CynUser = {
 };
 
 export type CynSong = {
-  id: string;            // CynLabs internal id
+  id: string;
   sunoId: string;
   title: string;
   artist?: string | null;
@@ -77,18 +73,30 @@ export type CynSong = {
   audioUrl: string;
   imageUrl?: string | null;
   duration?: number | null;
-  bpm?: number | null;
-  key?: string | null;
-  style?: string | null;
-  model?: string | null;
   isPublic?: boolean;
-  status?: string | null;
   createdAt?: string | null;
 };
 
 export type ImportResult = {
-  imported: number;
-  skipped: number;
+  inserted: number;
+  updated: number;
   total: number;
-  errors?: { sunoId?: string; message?: string }[];
 };
+
+/** Convert a backend SongOut (snake_case) to the frontend CynSong (camelCase). */
+export function mapSong(doc: any): CynSong {
+  return {
+    id: doc.id,
+    sunoId: doc.id,
+    title: doc.title || "Untitled",
+    artist: doc.display_name || doc.handle || null,
+    genre: null,
+    tags: doc.tags || null,
+    lyrics: doc.prompt || null,
+    audioUrl: doc.audio_url || "",
+    imageUrl: doc.image_url || null,
+    duration: doc.duration ?? null,
+    isPublic: doc.is_public || false,
+    createdAt: doc.imported_at || doc.created_at || null,
+  };
+}
